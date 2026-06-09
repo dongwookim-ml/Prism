@@ -51,9 +51,9 @@ const MODELS = {
     label: 'Claude (Claude Code)',
     cmd: 'claude',
     // Reads attached files (incl. images, PDFs) from its working dir via the Read tool.
-    // --allowedTools must come LAST: it's variadic and would otherwise eat the prompt.
-    // Pre-approving WebSearch/WebFetch lets Claude search the web in headless mode.
-    args: (p, ctx) => ['-p', filePreamble(ctx.attachments) + p, '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--allowedTools', 'WebSearch', 'WebFetch'],
+    // --dangerously-skip-permissions bypasses all permission checks in headless mode,
+    // which enables web search and every other tool without an interactive prompt.
+    args: (p, ctx) => ['-p', filePreamble(ctx.attachments) + p, '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--dangerously-skip-permissions'],
     parse: (o) => {
       if (o.type === 'stream_event' &&
           o.event?.type === 'content_block_delta' &&
@@ -153,6 +153,13 @@ app.post('/ask', (req, res) => {
   let remaining = ids.length;
   const children = [];
 
+  // Persist the turn up front (responses empty for now) so the conversation
+  // appears in the sidebar the moment you hit send, not only after all three
+  // models finish. `collected` is stored by reference, so re-saving on
+  // completion captures the streamed text.
+  const conv = saveTurn(conversationId, prompt, collected, attachments);
+  emit({ type: 'saved', conversationId: conv.id, title: conv.title });
+
   for (const id of ids) {
     const cfg = MODELS[id];
     const child = spawn(cfg.cmd, cfg.args(basePrompt, { images, attachments }), {
@@ -197,8 +204,8 @@ app.post('/ask', (req, res) => {
       }
       emit({ type: 'done', model: id });
       if (--remaining === 0) {
-        const conv = saveTurn(conversationId, prompt, collected, attachments);
-        emit({ type: 'saved', conversationId: conv.id, title: conv.title });
+        conv.updatedAt = new Date().toISOString(); // persist the now-complete responses
+        saveConv(conv);
         res.end();
       }
     });
