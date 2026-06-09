@@ -120,6 +120,7 @@ app.delete('/conversations/:id', (req, res) => {
 app.post('/ask', (req, res) => {
   const prompt = (req.body?.prompt || '').toString().trim();
   const conversationId = req.body?.conversationId || null;
+  const temporary = !!req.body?.temporary; // ephemeral chat: never saved to disk
   const files = Array.isArray(req.body?.files) ? req.body.files : [];
   if (!prompt && !files.length) return res.status(400).json({ error: 'empty prompt' });
 
@@ -147,7 +148,9 @@ app.post('/ask', (req, res) => {
   res.flushHeaders();
   const emit = (obj) => res.write(JSON.stringify(obj) + '\n');
 
-  const ids = Object.keys(MODELS);
+  // Optionally restrict to specific models (from @mentions); default to all.
+  const requested = Array.isArray(req.body?.models) ? req.body.models.filter((id) => MODELS[id]) : [];
+  const ids = requested.length ? requested : Object.keys(MODELS);
   const collected = Object.fromEntries(ids.map((id) => [id, ''])); // full text per model, for saving
   const emitChunk = (id, text) => { collected[id] += text; emit({ type: 'chunk', model: id, text }); };
   let remaining = ids.length;
@@ -156,9 +159,12 @@ app.post('/ask', (req, res) => {
   // Persist the turn up front (responses empty for now) so the conversation
   // appears in the sidebar the moment you hit send, not only after all three
   // models finish. `collected` is stored by reference, so re-saving on
-  // completion captures the streamed text.
-  const conv = saveTurn(conversationId, prompt, collected, attachments);
-  emit({ type: 'saved', conversationId: conv.id, title: conv.title });
+  // completion captures the streamed text. Temporary chats are never saved.
+  let conv = null;
+  if (!temporary) {
+    conv = saveTurn(conversationId, prompt, collected, attachments);
+    emit({ type: 'saved', conversationId: conv.id, title: conv.title });
+  }
 
   for (const id of ids) {
     const cfg = MODELS[id];
@@ -204,8 +210,7 @@ app.post('/ask', (req, res) => {
       }
       emit({ type: 'done', model: id });
       if (--remaining === 0) {
-        conv.updatedAt = new Date().toISOString(); // persist the now-complete responses
-        saveConv(conv);
+        if (conv) { conv.updatedAt = new Date().toISOString(); saveConv(conv); } // persist completed responses
         res.end();
       }
     });

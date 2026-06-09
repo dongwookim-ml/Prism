@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>AggregationAI</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <script src="/vendor/marked.umd.js"></script>
 <script src="/vendor/purify.min.js"></script>
 <style>
@@ -40,6 +41,13 @@
     background: #fff; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; text-align: left;
   }
   .newchat:hover { background: #f3f3f7; }
+  .tempbtn { margin-top: 0; }
+  .tempbtn.active { background: #efe9dd; border-color: #d8ccae; color: #6b5b2e; }
+  .temp-banner {
+    display: none; text-align: center; padding: 8px 12px; font-size: 13px;
+    color: #7c6a3a; background: #f6f1e3; border-bottom: 1px solid #e7dcc2;
+  }
+  body.temp .temp-banner { display: block; }
   .conv-list { flex: 1; overflow: auto; padding: 4px 8px 12px; }
   .conv-list .empty { color: #b6b6c0; font-size: 13px; padding: 10px 12px; }
   .conv-item {
@@ -78,6 +86,8 @@
     display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 9px;
     background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.22); border-radius: 8px;
   }
+  .msg.user .targets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .msg.user .target { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 7px; background: rgba(255,255,255,0.22); }
 
   .responses { display: flex; gap: 16px; align-items: stretch; }
   .response-box {
@@ -185,10 +195,12 @@
         <div class="tag">one prompt, three models</div>
       </div>
       <button class="newchat" id="newchat">+ New chat</button>
+      <button class="newchat tempbtn" id="tempchat">Temporary chat</button>
       <div class="conv-list" id="convList"></div>
     </aside>
 
     <div class="main">
+      <div class="temp-banner" id="tempBanner">Temporary chat, not saved to history.</div>
       <div class="conversation" id="conv"><div class="stream" id="stream"></div></div>
       <div class="composer">
         <div class="attachments" id="attachments"></div>
@@ -196,10 +208,10 @@
           <button class="attach" id="attachBtn" title="Attach files">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </button>
-          <textarea id="prompt" rows="1" placeholder="Ask Claude, Gemini, and ChatGPT at once…"></textarea>
+          <textarea id="prompt" rows="1" placeholder="Ask all three, or @Claude / @Gemini / @Codex to target one…"></textarea>
           <button id="send">Send</button>
         </div>
-        <div class="hint">Enter to send &middot; Shift+Enter for a new line &middot; drag files in or use the clip to attach</div>
+        <div class="hint">Enter to send &middot; Shift+Enter for a new line &middot; @model to ask just one &middot; drag files in to attach</div>
       </div>
     </div>
   </div>
@@ -220,18 +232,50 @@ let MODELS = [];
 let currentId = null;       // active conversation id (null = unsaved new chat)
 let active = {};            // model id -> streaming slot for the in-flight turn
 let pendingFiles = [];      // [{ name, type, dataUrl, dataBase64 }]
+let temporary = false;      // ephemeral chat: responses not saved to history
+
+const MENTION_ALIASES = { chatgpt: 'codex', gpt: 'codex' };
+function mentionToId(word) {
+  const w = word.toLowerCase();
+  if (MODELS.some((m) => m.id === w)) return w;
+  return MENTION_ALIASES[w] || null;
+}
+// Pull @model mentions out of the prompt. Returns the targeted ids (empty = all
+// models) and the prompt with the recognized mentions removed.
+function parseMention(text) {
+  const ids = [];
+  const cleaned = text.replace(/@(\w+)/g, (full, word) => {
+    const id = mentionToId(word);
+    if (id) { if (!ids.includes(id)) ids.push(id); return ''; }
+    return full;
+  }).replace(/\s{2,}/g, ' ').trim();
+  return { ids, cleaned };
+}
 
 async function init() {
   MODELS = await fetch('/models').then(r => r.json());
   await loadSidebar();
 }
 
-// Build one turn (prompt bubble + three answer boxes); returns model -> {el,status}.
-function buildTurn(prompt, attachments) {
+// Build one turn (prompt bubble + answer boxes for the targeted models);
+// returns model -> {el,status}. modelIds omitted/empty means all models.
+function buildTurn(prompt, attachments, modelIds) {
+  const shown = (modelIds && modelIds.length) ? MODELS.filter((m) => modelIds.includes(m.id)) : MODELS;
   const turn = document.createElement('div');
   turn.className = 'turn';
   const user = document.createElement('div');
   user.className = 'msg user';
+  if (shown.length < MODELS.length) {
+    const t = document.createElement('div');
+    t.className = 'targets';
+    for (const m of shown) {
+      const pill = document.createElement('span');
+      pill.className = 'target';
+      pill.textContent = '@' + m.label.split(' ')[0];
+      t.appendChild(pill);
+    }
+    user.appendChild(t);
+  }
   if (attachments && attachments.length) {
     const atts = document.createElement('div');
     atts.className = 'atts';
@@ -252,7 +296,7 @@ function buildTurn(prompt, attachments) {
   responses.className = 'responses';
   turn.append(user, responses);
   const boxes = {};
-  for (const m of MODELS) {
+  for (const m of shown) {
     const box = document.createElement('div');
     box.className = 'response-box';
     box.dataset.id = m.id;
@@ -327,7 +371,7 @@ function renderChips() {
 
 async function send() {
   const ta = document.getElementById('prompt');
-  const prompt = ta.value.trim();
+  const { ids: mentioned, cleaned: prompt } = parseMention(ta.value.trim());
   if (!prompt && !pendingFiles.length) return;
   const btn = document.getElementById('send');
   btn.disabled = true;
@@ -339,19 +383,20 @@ async function send() {
   pendingFiles = [];
   renderChips();
 
-  const boxes = buildTurn(prompt, attachments);
+  const targetIds = mentioned.length ? MODELS.filter((m) => mentioned.includes(m.id)).map((m) => m.id) : MODELS.map((m) => m.id);
+  const boxes = buildTurn(prompt, attachments, targetIds);
   active = {};
-  for (const m of MODELS) {
-    const slot = { raw: '', el: boxes[m.id].el, status: boxes[m.id].status, pending: false };
+  for (const id of targetIds) {
+    const slot = { raw: '', el: boxes[id].el, status: boxes[id].status, pending: false };
     setStatus(slot.status, 'thinking', true);
-    active[m.id] = slot;
+    active[id] = slot;
   }
   conv.scrollTop = conv.scrollHeight;
 
   const res = await fetch('/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, conversationId: currentId, files }),
+    body: JSON.stringify({ prompt, conversationId: currentId, files, models: targetIds, temporary }),
   });
 
   const reader = res.body.getReader();
@@ -413,26 +458,45 @@ async function loadSidebar() {
 
 async function openConversation(id) {
   const c = await fetch('/conversations/' + id).then(r => r.json());
+  markTemporary(false);
   currentId = id;
   stream.innerHTML = '';
   for (const turn of c.turns) {
-    const boxes = buildTurn(turn.prompt, turn.attachments);
-    for (const m of MODELS) {
-      boxes[m.id].el.innerHTML = md(turn.responses[m.id]);
-      setStatus(boxes[m.id].status, 'done', false);
+    const shownIds = Object.keys(turn.responses || {});
+    const boxes = buildTurn(turn.prompt, turn.attachments, shownIds);
+    for (const id of shownIds) {
+      if (!boxes[id]) continue;
+      boxes[id].el.innerHTML = md(turn.responses[id]);
+      setStatus(boxes[id].status, 'done', false);
     }
   }
   conv.scrollTop = conv.scrollHeight;
   loadSidebar();
 }
 
-function newChat() {
+function markTemporary(on) {
+  temporary = on;
+  document.body.classList.toggle('temp', on);
+  document.getElementById('tempchat').classList.toggle('active', on);
+}
+
+function resetView() {
   currentId = null;
   stream.innerHTML = '';
   pendingFiles = [];
   renderChips();
   loadSidebar();
   document.getElementById('prompt').focus();
+}
+
+function newChat() {
+  markTemporary(false);
+  resetView();
+}
+
+function toggleTemporary() {
+  markTemporary(!temporary);
+  resetView();
 }
 
 async function deleteConversation(id) {
@@ -449,6 +513,7 @@ ta.addEventListener('keydown', (e) => {
 });
 document.getElementById('send').addEventListener('click', send);
 document.getElementById('newchat').addEventListener('click', newChat);
+document.getElementById('tempchat').addEventListener('click', toggleTemporary);
 
 const fileInput = document.getElementById('fileInput');
 document.getElementById('attachBtn').addEventListener('click', () => fileInput.click());
