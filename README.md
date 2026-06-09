@@ -32,7 +32,28 @@ npm install
 node server.js        # http://localhost:3000
 ```
 
-Type a prompt, press **Cmd/Ctrl+Enter**. Each pane streams its model's answer.
+Type a prompt, press **Enter** (Shift+Enter for a newline). Each box streams its model's
+answer. Past chats are saved automatically and listed in the left sidebar.
+
+## Run at startup (macOS)
+
+A launchd LaunchAgent starts the server at login and restarts it if it crashes, so
+`http://localhost:3000` is always available. The agent sets `PATH`/`HOME` explicitly
+because launchd's default environment is too minimal to find the three CLIs.
+
+```bash
+# install / reload
+launchctl load -w ~/Library/LaunchAgents/com.dongwookim.aggregationai.plist
+# status (pid, last exit code)
+launchctl list | grep aggregationai
+# stop + remove from startup
+launchctl unload -w ~/Library/LaunchAgents/com.dongwookim.aggregationai.plist
+# logs
+tail -f server.log server.err.log
+```
+
+After editing `server.js`, restart it with:
+`launchctl kickstart -k gui/$(id -u)/com.dongwookim.aggregationai`
 
 ## How it works
 
