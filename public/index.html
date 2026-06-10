@@ -651,12 +651,6 @@ function renderSkills(data) {
         nm.className = 'skill-name';
         nm.textContent = s.name;
         text.appendChild(nm);
-        if (s.description) {
-          const d = document.createElement('span');
-          d.className = 'skill-desc';
-          d.textContent = s.description;
-          text.appendChild(d);
-        }
         row.append(cb, text);
         section.appendChild(row);
       }
