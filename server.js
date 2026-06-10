@@ -185,10 +185,10 @@ const MODELS = {
       return a;
     },
     parse: (o) => {
-      // Codex emits each message as a separate agent_message item; join with a
-      // blank line so consecutive messages don't run together (leading newlines
-      // are trimmed at render).
-      if (o.type === 'item.completed' && o.item?.type === 'agent_message') return '\n\n' + o.item.text;
+      // Codex emits each message as a separate agent_message item (e.g. a skill
+      // preamble then the answer). Separate them with U+001E so the client can
+      // style all but the last (preambles) as muted meta.
+      if (o.type === 'item.completed' && o.item?.type === 'agent_message') return '' + o.item.text;
       return null;
     },
   },
@@ -361,6 +361,8 @@ app.post('/compare', (req, res) => {
     .filter(([, t]) => t && String(t).trim())
     .map(([id, t]) => `### ${labels[id] || id}\n${t}`).join('\n\n');
   if (!parts) return res.status(400).json({ error: 'no responses' });
+  const conversationId = req.body?.conversationId;
+  const turnIndex = Number.isInteger(req.body?.turnIndex) ? req.body.turnIndex : null;
 
   const cmpPrompt = `Three AI assistants answered the same question. Compare them at a semantic level, not word by word.\n\nQuestion:\n${prompt || '(inferred from the answers)'}\n\nAnswers:\n${parts}\n\nOutput ONLY this JSON between <<<R>>> and <<</R>>> tags, with string values in the same language as the answers:\n{"consensus":["point all or most agree on", ...],"differences":[{"topic":"short topic","positions":[{"model":"claude|gemini|codex","stance":"what this model says"}]}],"unique":[{"model":"claude|gemini|codex","point":"point only this model raised"}]}\nKeep each string short. Omit unique if none. Only include models that actually answered.`;
   const child = spawn('claude', ['-p', cmpPrompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
@@ -378,7 +380,13 @@ app.post('/compare', (req, res) => {
       try { const o = JSON.parse(line); if (o.type === 'result') result = o.result || ''; } catch {}
     }
     const tagged = result.match(/<<<R>>>([\s\S]*?)<<<\/R>>>/);
-    res.json({ text: (tagged ? tagged[1] : result).trim() });
+    const synthesis = (tagged ? tagged[1] : result).trim();
+    // Persist the synthesis on its turn so it survives reloads.
+    if (conversationId && turnIndex != null) {
+      const c = loadConv(conversationId);
+      if (c && c.turns[turnIndex]) { c.turns[turnIndex].synthesis = synthesis; saveConv(c); }
+    }
+    res.json({ text: synthesis });
   });
   res.on('close', () => { if (!res.writableEnded) child.kill('SIGTERM'); });
 });
@@ -445,7 +453,7 @@ app.post('/ask', (req, res) => {
   let conv = null;
   if (!temporary) {
     conv = saveTurn(conversationId, prompt, collected, attachments);
-    emit({ type: 'saved', conversationId: conv.id, title: conv.title });
+    emit({ type: 'saved', conversationId: conv.id, title: conv.title, turnIndex: conv.turns.length - 1 });
   }
 
   for (const id of ids) {
