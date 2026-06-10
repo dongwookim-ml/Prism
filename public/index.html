@@ -24,6 +24,8 @@
     --claude: #cc7a56;
     --gemini: #4285f4;
     --codex:  #10a37f;
+    --app-font: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
+    --read-size: 16px;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -31,7 +33,7 @@
     margin: 0; display: flex; flex-direction: column;
     background: linear-gradient(180deg, #f7f7f9 0%, #eef0f4 100%);
     color: var(--ink); font-size: 16px;
-    font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
+    font-family: var(--app-font);
   }
 
   .app { flex: 1; display: flex; min-height: 0; }
@@ -137,7 +139,7 @@
   .msg.user {
     margin: 0 0 14px auto; max-width: 70%; width: fit-content;
     background: var(--ink); color: #fff; border-radius: 16px; padding: 11px 16px;
-    font-size: 16px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+    font-size: var(--read-size); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
   }
   .msg.user .atts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   .msg.user .att {
@@ -168,7 +170,7 @@
   .status.running .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
 
-  .assistant { flex: 1; padding: 16px 18px; font-size: 16px; line-height: 1.6; color: #25252b; }
+  .assistant { flex: 1; padding: 16px 18px; font-size: var(--read-size); line-height: 1.6; color: #25252b; }
   .loader { display: inline-flex; gap: 6px; padding: 2px 0; }
   .loader span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: .35; animation: dotbounce 1s infinite ease-in-out; }
   .loader span:nth-child(2) { animation-delay: .15s; }
@@ -211,7 +213,8 @@
   .responses.has-expanded .response-box:not(.expanded) { display: none; }
   .humanized { margin: 0 18px 16px; padding-top: 12px; border-top: 1px dashed var(--line); }
   .humanized-label { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .04em; margin-bottom: 6px; }
-  .humanized-body { font-size: 16px; line-height: 1.6; color: #25252b; }
+  .humanized-body { font-size: var(--read-size); line-height: 1.6; color: #25252b; }
+  .font-select { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid #dcdce4; border-radius: 8px; background: #fff; cursor: pointer; }
   mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
 
   /* Composer */
@@ -346,6 +349,20 @@ function renderInto(el, text) {
 const FILE_ICON = '<svg class="fileicon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
 const MAX_FILE = 25 * 1024 * 1024; // 25 MB per file
 const LOADER = '<div class="loader"><span></span><span></span><span></span></div>';
+
+const FONTS = {
+  system: '-apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif',
+  serif: 'Georgia, "Times New Roman", serif',
+  mono: '"SF Mono", ui-monospace, Menlo, Consolas, monospace',
+};
+const SIZES = { small: '14px', medium: '16px', large: '18px' };
+function applyFont() {
+  const f = localStorage.getItem('prism.font') || 'system';
+  const s = localStorage.getItem('prism.size') || 'medium';
+  document.documentElement.style.setProperty('--app-font', FONTS[f] || FONTS.system);
+  document.documentElement.style.setProperty('--read-size', SIZES[s] || SIZES.medium);
+}
+applyFont();
 
 const conv = document.getElementById('conv');
 const stream = document.getElementById('stream');
@@ -717,9 +734,42 @@ async function deleteConversation(id) {
 // ----- settings (skills) -----
 const PROVIDER_LABEL = { claude: 'Claude', gemini: 'Gemini', codex: 'ChatGPT (Codex)' };
 
+function fontRow(label, key, opts, def) {
+  const row = document.createElement('label');
+  row.className = 'skill-row';
+  const nm = document.createElement('span');
+  nm.className = 'skill-name';
+  nm.textContent = label;
+  nm.style.flex = 'none';
+  nm.style.minWidth = '64px';
+  const sel = document.createElement('select');
+  sel.className = 'font-select';
+  const cur = localStorage.getItem(key) || def;
+  for (const [v, t] of Object.entries(opts)) {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = t;
+    if (v === cur) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => { localStorage.setItem(key, sel.value); applyFont(); };
+  row.append(nm, sel);
+  return row;
+}
+
 function renderSkills(data) {
   const body = document.getElementById('skillsBody');
   body.innerHTML = '';
+
+  // Appearance: font family + size (client-side, persisted in localStorage).
+  const asec = document.createElement('div');
+  asec.className = 'skill-section';
+  const ah = document.createElement('div');
+  ah.className = 'skill-provider';
+  ah.textContent = 'Appearance';
+  asec.appendChild(ah);
+  asec.appendChild(fontRow('Font', 'prism.font', { system: 'System', serif: 'Serif', mono: 'Mono' }, 'system'));
+  asec.appendChild(fontRow('Size', 'prism.size', { small: 'Small', medium: 'Medium', large: 'Large' }, 'medium'));
+  body.appendChild(asec);
 
   // Default models: which answer when no @mention is given.
   const dsec = document.createElement('div');
