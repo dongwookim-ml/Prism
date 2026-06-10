@@ -204,9 +204,21 @@ app.get('/skills', async (_req, res) => {
   catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
+app.get('/settings', (_req, res) => {
+  const dm = (loadSettings().defaultModels || []).filter((id) => MODELS[id]);
+  res.json({ defaultModels: dm.length ? dm : Object.keys(MODELS) });
+});
+
 app.post('/settings', async (req, res) => {
   const claude = Array.isArray(req.body?.claude) ? req.body.claude.map(String) : null;
   const gemini = Array.isArray(req.body?.gemini) ? req.body.gemini.map(String) : null;
+  const defaultModels = Array.isArray(req.body?.defaultModels) ? req.body.defaultModels.filter((id) => MODELS[id]) : null;
+
+  if (defaultModels) {
+    const settings = loadSettings();
+    settings.defaultModels = defaultModels;
+    saveSettings(settings);
+  }
 
   // Claude: app-scoped, stored and applied per request via --disallowedTools.
   if (claude) {
@@ -263,9 +275,10 @@ app.post('/ask', (req, res) => {
   res.flushHeaders();
   const emit = (obj) => res.write(JSON.stringify(obj) + '\n');
 
-  // Optionally restrict to specific models (from @mentions); default to all.
+  // Models for this turn: explicit (from @mentions) -> saved defaults -> all.
   const requested = Array.isArray(req.body?.models) ? req.body.models.filter((id) => MODELS[id]) : [];
-  const ids = requested.length ? requested : Object.keys(MODELS);
+  const defaultModels = (loadSettings().defaultModels || []).filter((id) => MODELS[id]);
+  const ids = requested.length ? requested : (defaultModels.length ? defaultModels : Object.keys(MODELS));
   const collected = Object.fromEntries(ids.map((id) => [id, ''])); // full text per model, for saving
   const emitChunk = (id, text) => { collected[id] += text; emit({ type: 'chunk', model: id, text }); };
   let remaining = ids.length;

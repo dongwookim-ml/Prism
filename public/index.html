@@ -298,6 +298,7 @@ let currentId = null;       // active conversation id (null = unsaved new chat)
 let active = {};            // model id -> streaming slot for the in-flight turn
 let pendingFiles = [];      // [{ name, type, dataUrl, dataBase64 }]
 let temporary = false;      // ephemeral chat: responses not saved to history
+let defaultModels = [];     // models that answer when no @mention is given
 
 const MENTION_ALIASES = { chatgpt: 'codex', gpt: 'codex' };
 function mentionToId(word) {
@@ -319,6 +320,7 @@ function parseMention(text) {
 
 async function init() {
   MODELS = await fetch('/models').then(r => r.json());
+  defaultModels = (await fetch('/settings').then(r => r.json())).defaultModels || MODELS.map((m) => m.id);
   await loadSidebar();
   const cid = new URLSearchParams(location.search).get('conv');
   if (cid) openConversation(cid);
@@ -450,7 +452,9 @@ async function send() {
   pendingFiles = [];
   renderChips();
 
-  const targetIds = mentioned.length ? MODELS.filter((m) => mentioned.includes(m.id)).map((m) => m.id) : MODELS.map((m) => m.id);
+  const base = (defaultModels.length ? defaultModels : MODELS.map((m) => m.id));
+  const pick = mentioned.length ? mentioned : base;
+  const targetIds = MODELS.filter((m) => pick.includes(m.id)).map((m) => m.id);
   const boxes = buildTurn(prompt, attachments, targetIds);
   active = {};
   for (const id of targetIds) {
@@ -579,6 +583,38 @@ const PROVIDER_LABEL = { claude: 'Claude', gemini: 'Gemini', codex: 'ChatGPT (Co
 function renderSkills(data) {
   const body = document.getElementById('skillsBody');
   body.innerHTML = '';
+
+  // Default models: which answer when no @mention is given.
+  const dsec = document.createElement('div');
+  dsec.className = 'skill-section';
+  const dh = document.createElement('div');
+  dh.className = 'skill-provider';
+  dh.textContent = 'Default models';
+  dsec.appendChild(dh);
+  const dnote = document.createElement('div');
+  dnote.className = 'skill-note';
+  dnote.style.marginLeft = '0';
+  dnote.textContent = 'Which models answer when you don’t @mention one.';
+  dsec.appendChild(dnote);
+  for (const m of MODELS) {
+    const row = document.createElement('label');
+    row.className = 'skill-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.dataset.default = '1';
+    cb.dataset.id = m.id;
+    cb.checked = defaultModels.includes(m.id);
+    const t = document.createElement('div');
+    t.className = 'skill-text';
+    const nm = document.createElement('span');
+    nm.className = 'skill-name';
+    nm.textContent = m.label;
+    t.appendChild(nm);
+    row.append(cb, t);
+    dsec.appendChild(row);
+  }
+  body.appendChild(dsec);
+
   for (const pid of ['claude', 'gemini', 'codex']) {
     const section = document.createElement('div');
     section.className = 'skill-section';
@@ -641,13 +677,15 @@ function closeSettings() { document.getElementById('settingsModal').classList.re
 
 async function saveSettingsModal() {
   const sel = { claude: [], gemini: [] };
-  document.querySelectorAll('#skillsBody input[type=checkbox]').forEach((cb) => {
+  document.querySelectorAll('#skillsBody input[data-provider]').forEach((cb) => {
     if (cb.dataset.provider === 'codex') return;
     if (cb.checked) sel[cb.dataset.provider].push(cb.dataset.name);
   });
+  sel.defaultModels = [...document.querySelectorAll('#skillsBody input[data-default]')].filter((c) => c.checked).map((c) => c.dataset.id);
   const btn = document.getElementById('settingsSave');
   btn.disabled = true; btn.textContent = 'Saving…';
   await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sel) });
+  defaultModels = sel.defaultModels;
   btn.disabled = false; btn.textContent = 'Save';
   closeSettings();
 }
