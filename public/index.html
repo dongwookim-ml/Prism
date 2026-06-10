@@ -282,6 +282,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Settings
       </button>
+      <button class="settings-btn" id="skillsBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Skills
+      </button>
     </aside>
 
     <div class="main">
@@ -756,11 +760,14 @@ function fontRow(label, key, opts, def) {
   return row;
 }
 
-function renderSkills(data) {
+let settingsMode = 'settings';
+const setModalTitle = (t) => { document.querySelector('.modal-head h2').textContent = t; };
+
+// Settings modal: Appearance + Default models. No slow /skills fetch.
+function renderSettingsBody() {
   const body = document.getElementById('skillsBody');
   body.innerHTML = '';
 
-  // Appearance: font family + size (client-side, persisted in localStorage).
   const asec = document.createElement('div');
   asec.className = 'skill-section';
   const ah = document.createElement('div');
@@ -771,7 +778,6 @@ function renderSkills(data) {
   asec.appendChild(fontRow('Size', 'prism.size', { small: 'Small', medium: 'Medium', large: 'Large' }, 'medium'));
   body.appendChild(asec);
 
-  // Default models: which answer when no @mention is given.
   const dsec = document.createElement('div');
   dsec.className = 'skill-section';
   const dh = document.createElement('div');
@@ -801,7 +807,12 @@ function renderSkills(data) {
     dsec.appendChild(row);
   }
   body.appendChild(dsec);
+}
 
+// Skills modal: per-provider skill toggles (fetched on demand, slow).
+function renderSkillsBody(data) {
+  const body = document.getElementById('skillsBody');
+  body.innerHTML = '';
   for (const pid of ['claude', 'gemini', 'codex']) {
     const section = document.createElement('div');
     section.className = 'skill-section';
@@ -846,27 +857,42 @@ function renderSkills(data) {
   }
 }
 
-async function openSettings() {
+function openSettings() {
+  settingsMode = 'settings';
+  setModalTitle('Settings');
+  renderSettingsBody();
+  document.getElementById('settingsModal').classList.add('show');
+}
+
+async function openSkills() {
+  settingsMode = 'skills';
+  setModalTitle('Skills');
   const body = document.getElementById('skillsBody');
   body.innerHTML = '<div class="skill-empty">Loading…</div>';
   document.getElementById('settingsModal').classList.add('show');
-  try { renderSkills(await fetch('/skills').then(r => r.json())); }
+  try { renderSkillsBody(await fetch('/skills').then(r => r.json())); }
   catch { body.innerHTML = '<div class="skill-empty">Failed to load skills.</div>'; }
 }
 
 function closeSettings() { document.getElementById('settingsModal').classList.remove('show'); }
 
 async function saveSettingsModal() {
-  const sel = { claude: [], gemini: [] };
-  document.querySelectorAll('#skillsBody input[data-provider]').forEach((cb) => {
-    if (cb.dataset.provider === 'codex') return;
-    if (cb.checked) sel[cb.dataset.provider].push(cb.dataset.name);
-  });
-  sel.defaultModels = [...document.querySelectorAll('#skillsBody input[data-default]')].filter((c) => c.checked).map((c) => c.dataset.id);
   const btn = document.getElementById('settingsSave');
   btn.disabled = true; btn.textContent = 'Saving…';
-  await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sel) });
-  defaultModels = sel.defaultModels;
+  let payload;
+  if (settingsMode === 'skills') {
+    const sel = { claude: [], gemini: [] };
+    document.querySelectorAll('#skillsBody input[data-provider]').forEach((cb) => {
+      if (cb.dataset.provider === 'codex') return;
+      if (cb.checked) sel[cb.dataset.provider].push(cb.dataset.name);
+    });
+    payload = sel;
+  } else {
+    const dm = [...document.querySelectorAll('#skillsBody input[data-default]')].filter((c) => c.checked).map((c) => c.dataset.id);
+    defaultModels = dm;
+    payload = { defaultModels: dm };
+  }
+  await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   btn.disabled = false; btn.textContent = 'Save';
   closeSettings();
 }
@@ -881,6 +907,7 @@ document.getElementById('send').addEventListener('click', send);
 document.getElementById('newchat').addEventListener('click', newChat);
 document.getElementById('tempchat').addEventListener('click', toggleTemporary);
 document.getElementById('settingsBtn').addEventListener('click', openSettings);
+document.getElementById('skillsBtn').addEventListener('click', openSkills);
 document.getElementById('settingsClose').addEventListener('click', closeSettings);
 document.getElementById('settingsCancel').addEventListener('click', closeSettings);
 document.getElementById('settingsSave').addEventListener('click', saveSettingsModal);
