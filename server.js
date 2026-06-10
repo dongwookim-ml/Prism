@@ -185,7 +185,10 @@ const MODELS = {
       return a;
     },
     parse: (o) => {
-      if (o.type === 'item.completed' && o.item?.type === 'agent_message') return o.item.text;
+      // Codex emits each message as a separate agent_message item; join with a
+      // blank line so consecutive messages don't run together (leading newlines
+      // are trimmed at render).
+      if (o.type === 'item.completed' && o.item?.type === 'agent_message') return '\n\n' + o.item.text;
       return null;
     },
   },
