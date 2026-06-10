@@ -121,6 +121,7 @@ const MODELS = {
     // Unselected skills are blocked via --disallowedTools Skill(name) (kept LAST: variadic).
     args: (p, ctx) => {
       const base = ['-p', filePreamble(ctx.attachments) + p, '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--dangerously-skip-permissions'];
+      if (ctx.model) base.push('--model', ctx.model);
       const disabled = ctx.disabledSkills || [];
       return disabled.length ? [...base, '--disallowedTools', ...disabled.map((n) => `Skill(${n})`)] : base;
     },
@@ -140,7 +141,10 @@ const MODELS = {
     // attached file in as real (multimodal) input, which it needs to view images.
     args: (p, ctx) => {
       const refs = (ctx.attachments || []).map((n) => '@' + n).join(' ');
-      return ['--skip-trust', '-p', refs ? `${p}\n\n${refs}` : p];
+      const a = ['--skip-trust'];
+      if (ctx.model) a.push('-m', ctx.model);
+      a.push('-p', refs ? `${p}\n\n${refs}` : p);
+      return a;
     },
     parse: null, // plain text on stdout: forward as-is
   },
@@ -148,10 +152,12 @@ const MODELS = {
     label: 'ChatGPT (Codex CLI)',
     cmd: 'codex',
     // Prompt must come BEFORE -i: --image is variadic and would otherwise eat the prompt.
-    args: (p, ctx) => [
-      'exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only', filePreamble(ctx.attachments) + p,
-      ...(ctx.images || []).flatMap((img) => ['-i', img]),
-    ],
+    args: (p, ctx) => {
+      const a = ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only'];
+      if (ctx.model) a.push('-m', ctx.model);
+      a.push(filePreamble(ctx.attachments) + p, ...(ctx.images || []).flatMap((img) => ['-i', img]));
+      return a;
+    },
     parse: (o) => {
       if (o.type === 'item.completed' && o.item?.type === 'agent_message') return o.item.text;
       return null;
@@ -213,18 +219,29 @@ app.get('/skills', async (_req, res) => {
 });
 
 app.get('/settings', (_req, res) => {
-  const dm = (loadSettings().defaultModels || []).filter((id) => MODELS[id]);
-  res.json({ defaultModels: dm.length ? dm : Object.keys(MODELS) });
+  const s = loadSettings();
+  const dm = (s.defaultModels || []).filter((id) => MODELS[id]);
+  res.json({ defaultModels: dm.length ? dm : Object.keys(MODELS), models: s.models || {} });
 });
 
 app.post('/settings', async (req, res) => {
   const claude = Array.isArray(req.body?.claude) ? req.body.claude.map(String) : null;
   const gemini = Array.isArray(req.body?.gemini) ? req.body.gemini.map(String) : null;
   const defaultModels = Array.isArray(req.body?.defaultModels) ? req.body.defaultModels.filter((id) => MODELS[id]) : null;
+  const serviceModels = (req.body?.models && typeof req.body.models === 'object') ? req.body.models : null;
 
   if (defaultModels) {
     const settings = loadSettings();
     settings.defaultModels = defaultModels;
+    saveSettings(settings);
+  }
+  if (serviceModels) {
+    const settings = loadSettings();
+    settings.models = {};
+    for (const id of Object.keys(MODELS)) {
+      const v = String(serviceModels[id] || '').trim();
+      if (v) settings.models[id] = v;
+    }
     saveSettings(settings);
   }
 
@@ -306,6 +323,9 @@ app.post('/ask', (req, res) => {
   // Prior turns of this conversation become per-model context (none for new/temporary chats).
   const priorTurns = (!temporary && conversationId) ? (loadConv(conversationId)?.turns || []) : [];
 
+  // Per-service base model override (empty => CLI default).
+  const serviceModels = loadSettings().models || {};
+
   // Stream newline-delimited JSON events back to the browser as they happen.
   res.set({ 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
@@ -332,7 +352,7 @@ app.post('/ask', (req, res) => {
 
   for (const id of ids) {
     const cfg = MODELS[id];
-    const child = spawn(cfg.cmd, cfg.args(withHistory(priorTurns, id, basePrompt), { images, attachments, disabledSkills }), {
+    const child = spawn(cfg.cmd, cfg.args(withHistory(priorTurns, id, basePrompt), { images, attachments, disabledSkills, model: serviceModels[id] }), {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });

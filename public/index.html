@@ -215,6 +215,7 @@
   .humanized-label { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .04em; margin-bottom: 6px; }
   .humanized-body { font-size: var(--read-size); line-height: 1.6; color: #25252b; }
   .font-select { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid #dcdce4; border-radius: 8px; background: #fff; cursor: pointer; }
+  .model-input { font: inherit; font-size: 13px; padding: 5px 9px; border: 1px solid #dcdce4; border-radius: 8px; background: #fff; min-width: 230px; }
   mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
 
   /* Composer */
@@ -377,6 +378,7 @@ let active = {};            // model id -> streaming slot for the in-flight turn
 let pendingFiles = [];      // [{ name, type, dataUrl, dataBase64 }]
 let temporary = false;      // ephemeral chat: responses not saved to history
 let defaultModels = [];     // models that answer when no @mention is given
+let serviceModels = {};     // per-service base model override (id -> model name)
 
 const MENTION_ALIASES = { chatgpt: 'codex', gpt: 'codex' };
 function mentionToId(word) {
@@ -398,7 +400,9 @@ function parseMention(text) {
 
 async function init() {
   MODELS = await fetch('/models').then(r => r.json());
-  defaultModels = (await fetch('/settings').then(r => r.json())).defaultModels || MODELS.map((m) => m.id);
+  const s = await fetch('/settings').then(r => r.json());
+  defaultModels = s.defaultModels || MODELS.map((m) => m.id);
+  serviceModels = s.models || {};
   await loadSidebar();
   const cid = new URLSearchParams(location.search).get('conv');
   if (cid) openConversation(cid);
@@ -764,6 +768,24 @@ let settingsMode = 'settings';
 const setModalTitle = (t) => { document.querySelector('.modal-head h2').textContent = t; };
 
 // Settings modal: Appearance + Default models. No slow /skills fetch.
+function modelRow(m) {
+  const row = document.createElement('label');
+  row.className = 'skill-row';
+  const nm = document.createElement('span');
+  nm.className = 'skill-name';
+  nm.textContent = m.label;
+  nm.style.flex = 'none';
+  nm.style.minWidth = '155px';
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'model-input';
+  inp.dataset.model = m.id;
+  inp.placeholder = 'default';
+  inp.value = serviceModels[m.id] || '';
+  row.append(nm, inp);
+  return row;
+}
+
 function renderSettingsBody() {
   const body = document.getElementById('skillsBody');
   body.innerHTML = '';
@@ -807,6 +829,20 @@ function renderSettingsBody() {
     dsec.appendChild(row);
   }
   body.appendChild(dsec);
+
+  const msec = document.createElement('div');
+  msec.className = 'skill-section';
+  const mh = document.createElement('div');
+  mh.className = 'skill-provider';
+  mh.textContent = 'Base model';
+  msec.appendChild(mh);
+  const mnote = document.createElement('div');
+  mnote.className = 'skill-note';
+  mnote.style.marginLeft = '0';
+  mnote.textContent = 'Model name per service. Blank uses the CLI default.';
+  msec.appendChild(mnote);
+  for (const m of MODELS) msec.appendChild(modelRow(m));
+  body.appendChild(msec);
 }
 
 // Skills modal: per-provider skill toggles (fetched on demand, slow).
@@ -890,7 +926,10 @@ async function saveSettingsModal() {
   } else {
     const dm = [...document.querySelectorAll('#skillsBody input[data-default]')].filter((c) => c.checked).map((c) => c.dataset.id);
     defaultModels = dm;
-    payload = { defaultModels: dm };
+    const models = {};
+    document.querySelectorAll('#skillsBody input[data-model]').forEach((inp) => { const v = inp.value.trim(); if (v) models[inp.dataset.model] = v; });
+    serviceModels = models;
+    payload = { defaultModels: dm, models };
   }
   await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   btn.disabled = false; btn.textContent = 'Save';
