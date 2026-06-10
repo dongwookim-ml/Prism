@@ -13,6 +13,7 @@
   "dependencies": {
     "dompurify": "^3.4.8",
     "express": "^5.2.1",
-    "marked": "^18.0.5"
+    "marked": "^18.0.5",
+    "mathjax": "^3.2.2"
   }
 }

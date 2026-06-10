@@ -199,6 +199,14 @@ app.delete('/conversations/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/conversations/:id/rename', (req, res) => {
+  const c = loadConv(req.params.id);
+  if (!c) return res.status(404).json({ error: 'not found' });
+  const title = (req.body?.title || '').toString().trim().slice(0, 100);
+  if (title) { c.title = title; saveConv(c); }
+  res.json({ ok: true, title: c.title });
+});
+
 app.get('/skills', async (_req, res) => {
   try { res.json(await listAllSkills()); }
   catch (e) { res.status(500).json({ error: String(e) }); }

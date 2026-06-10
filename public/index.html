@@ -7,6 +7,14 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <script src="/vendor/marked.umd.js"></script>
 <script src="/vendor/purify.min.js"></script>
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
+    svg: { fontCache: 'global' },
+    startup: { typeset: false },
+  };
+</script>
+<script src="/vendor/mathjax.js" async></script>
 <style>
   :root {
     --card: #ffffff;
@@ -63,6 +71,14 @@
   }
   .conv-item:hover .del { opacity: 1; }
   .conv-item .del:hover { background: #d8d8e0; color: #555; }
+  .conv-item .ren {
+    flex: none; border: none; background: none; color: #a6a6b0; cursor: pointer;
+    padding: 2px 4px; border-radius: 6px; opacity: 0; display: flex; align-items: center;
+  }
+  .conv-item .ren svg { width: 14px; height: 14px; }
+  .conv-item:hover .ren { opacity: 1; }
+  .conv-item .ren:hover { background: #d8d8e0; color: #555; }
+  .conv-item .title.editing { background: #fff; outline: 1px solid #b9b9c6; border-radius: 4px; padding: 1px 5px; cursor: text; }
 
   /* Settings button (bottom-left) */
   .settings-btn {
@@ -192,6 +208,7 @@
   .humanized { margin: 0 18px 16px; padding-top: 12px; border-top: 1px dashed var(--line); }
   .humanized-label { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .04em; margin-bottom: 6px; }
   .humanized-body { font-size: 16px; line-height: 1.6; color: #25252b; }
+  mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
 
   /* Composer */
   .composer { padding: 14px 16px 18px; }
@@ -297,6 +314,31 @@
 <script>
 marked.setOptions({ gfm: true, breaks: true });
 const md = (text) => DOMPurify.sanitize(marked.parse(text || ''));
+
+// Markdown + LaTeX: stash math spans before markdown (so $a_i$ isn't mangled),
+// run markdown, then restore them as MathJax \( \) / \[ \] delimiters.
+function mdMath(text) {
+  const math = [];
+  const stash = (tex, display) => { math.push({ tex, display }); return `@@MJX${math.length - 1}@@`; };
+  const t = (text || '')
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => stash(m, true))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => stash(m, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => stash(m, false))
+    .replace(/(?<![\\$])\$(?!\s)([^\n$]+?)(?<![\\\s])\$(?!\d)/g, (_, m) => stash(m, false));
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return DOMPurify.sanitize(marked.parse(t)).replace(/@@MJX(\d+)@@/g, (_, i) => {
+    const { tex, display } = math[+i];
+    return display ? `\\[${esc(tex)}\\]` : `\\(${esc(tex)}\\)`;
+  });
+}
+
+function renderInto(el, text) {
+  el.innerHTML = mdMath(text);
+  if (/[\\$]/.test(text || '') && window.MathJax?.typesetPromise) {
+    if (MathJax.typesetClear) MathJax.typesetClear([el]);
+    MathJax.typesetPromise([el]).catch(() => {});
+  }
+}
 const FILE_ICON = '<svg class="fileicon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
 const MAX_FILE = 25 * 1024 * 1024; // 25 MB per file
 const LOADER = '<div class="loader"><span></span><span></span><span></span></div>';
@@ -408,7 +450,7 @@ function scheduleRender(slot) {
   requestAnimationFrame(() => {
     slot.pending = false;
     const atBottom = conv.scrollHeight - conv.scrollTop - conv.clientHeight < 100;
-    slot.el.innerHTML = md(slot.raw);
+    renderInto(slot.el, slot.raw);
     if (atBottom) conv.scrollTop = conv.scrollHeight;
   });
 }
@@ -533,12 +575,18 @@ async function loadSidebar() {
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = c.title || 'Untitled';
+    const ren = document.createElement('button');
+    ren.className = 'ren';
+    ren.title = 'Rename';
+    ren.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
     const del = document.createElement('button');
     del.className = 'del';
     del.textContent = '×';
     del.title = 'Delete';
-    item.append(title, del);
+    item.append(title, ren, del);
     item.addEventListener('click', () => openConversation(c.id));
+    ren.addEventListener('click', (e) => { e.stopPropagation(); startRename(title, c); });
+    title.addEventListener('dblclick', (e) => { e.stopPropagation(); startRename(title, c); });
     del.addEventListener('click', (e) => { e.stopPropagation(); deleteConversation(c.id); });
     convList.appendChild(item);
   }
@@ -560,7 +608,7 @@ async function humanize(slot, getText) {
       let el = slot.box.querySelector('.humanized');
       if (!el) { el = document.createElement('div'); el.className = 'humanized'; slot.box.appendChild(el); }
       el.innerHTML = '<div class="humanized-label">Humanized</div><div class="humanized-body"></div>';
-      el.querySelector('.humanized-body').innerHTML = md(r.text);
+      renderInto(el.querySelector('.humanized-body'), r.text);
     }
   } catch {}
   btn.disabled = false;
@@ -577,7 +625,7 @@ async function openConversation(id) {
     const boxes = buildTurn(turn.prompt, turn.attachments, shownIds);
     for (const id of shownIds) {
       if (!boxes[id]) continue;
-      boxes[id].el.innerHTML = md(turn.responses[id]);
+      renderInto(boxes[id].el, turn.responses[id]);
       setStatus(boxes[id].status, 'done', false);
       const text = turn.responses[id];
       boxes[id].btn.onclick = () => humanize(boxes[id], () => text);
@@ -610,6 +658,35 @@ function newChat() {
 function toggleTemporary() {
   markTemporary(!temporary);
   resetView();
+}
+
+// Inline-rename a conversation title (double-click or pencil button).
+function startRename(titleEl, c) {
+  if (titleEl.isContentEditable) return;
+  titleEl.contentEditable = 'true';
+  titleEl.classList.add('editing');
+  getSelection().selectAllChildren(titleEl);
+  const finish = async (save) => {
+    titleEl.removeEventListener('keydown', onKey);
+    titleEl.removeEventListener('blur', onBlur);
+    titleEl.contentEditable = 'false';
+    titleEl.classList.remove('editing');
+    const t = titleEl.textContent.trim();
+    if (save && t && t !== c.title) {
+      await fetch('/conversations/' + c.id + '/rename', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: t }),
+      });
+    }
+    loadSidebar();
+  };
+  const onKey = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  };
+  const onBlur = () => finish(true);
+  titleEl.addEventListener('keydown', onKey);
+  titleEl.addEventListener('blur', onBlur);
+  titleEl.focus();
 }
 
 async function deleteConversation(id) {
