@@ -320,6 +320,8 @@ function parseMention(text) {
 async function init() {
   MODELS = await fetch('/models').then(r => r.json());
   await loadSidebar();
+  const cid = new URLSearchParams(location.search).get('conv');
+  if (cid) openConversation(cid);
 }
 
 // Build one turn (prompt bubble + answer boxes for the targeted models);

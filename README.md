@@ -4,6 +4,8 @@ One prompt refracted into three answers, side by side. A single web page fans yo
 **Claude**, **Gemini**, and **ChatGPT** by shelling out to each vendor's official CLI,
 so it runs on your existing **subscriptions** instead of per-token API billing.
 
+![Prism, one prompt answered by Claude, Gemini, and ChatGPT side by side](docs/screenshot.png)
+
 ```
 Browser (3 panes + 1 prompt)
    |  POST /ask  -> streamed NDJSON back
