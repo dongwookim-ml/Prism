@@ -182,6 +182,17 @@
   .assistant hr { border: none; border-top: 1px solid var(--line); margin: 1.2em 0; }
   .assistant > *:first-child { margin-top: 0; } .assistant > *:last-child { margin-bottom: 0; }
 
+  /* Humanize button + result */
+  .humanize-btn {
+    flex: none; border: 1px solid var(--line); background: #fff; color: #555;
+    font: inherit; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 7px; cursor: pointer;
+  }
+  .humanize-btn:hover { background: #f3f3f7; }
+  .humanize-btn:disabled { opacity: .5; cursor: default; }
+  .humanized { margin: 0 18px 16px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .humanized-label { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .04em; margin-bottom: 6px; }
+  .humanized-body { font-size: 16px; line-height: 1.6; color: #25252b; }
+
   /* Composer */
   .composer { padding: 14px 16px 18px; }
   .attachments { max-width: 920px; margin: 0 auto 8px; display: none; flex-wrap: wrap; gap: 8px; }
@@ -376,7 +387,11 @@ function buildTurn(prompt, attachments, modelIds) {
     body.className = 'assistant';
     box.appendChild(body);
     responses.appendChild(box);
-    boxes[m.id] = { el: body, status: box.querySelector('.status') };
+    const btn = document.createElement('button');
+    btn.className = 'humanize-btn';
+    btn.textContent = 'Humanize';
+    box.querySelector('.rbox-head').appendChild(btn);
+    boxes[m.id] = { el: body, status: box.querySelector('.status'), box, btn };
   }
   stream.appendChild(turn);
   return boxes;
@@ -459,8 +474,9 @@ async function send() {
   active = {};
   for (const id of targetIds) {
     boxes[id].el.innerHTML = LOADER; // bouncing dots until the first token arrives
-    const slot = { raw: '', el: boxes[id].el, status: boxes[id].status, pending: false };
+    const slot = { raw: '', el: boxes[id].el, status: boxes[id].status, box: boxes[id].box, btn: boxes[id].btn, pending: false };
     setStatus(slot.status, 'thinking', true);
+    slot.btn.onclick = () => humanize(slot, () => slot.raw);
     active[id] = slot;
   }
   conv.scrollTop = conv.scrollHeight;
@@ -528,6 +544,29 @@ async function loadSidebar() {
   }
 }
 
+// Rewrite a box's answer via the humanize-korean plugin, shown below the original.
+async function humanize(slot, getText) {
+  const text = (getText() || '').trim();
+  if (!text) return;
+  const btn = slot.btn;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '…';
+  try {
+    const r = await fetch('/humanize', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    }).then((res) => res.json());
+    if (r.text) {
+      let el = slot.box.querySelector('.humanized');
+      if (!el) { el = document.createElement('div'); el.className = 'humanized'; slot.box.appendChild(el); }
+      el.innerHTML = '<div class="humanized-label">Humanized</div><div class="humanized-body"></div>';
+      el.querySelector('.humanized-body').innerHTML = md(r.text);
+    }
+  } catch {}
+  btn.disabled = false;
+  btn.textContent = label;
+}
+
 async function openConversation(id) {
   const c = await fetch('/conversations/' + id).then(r => r.json());
   markTemporary(false);
@@ -540,6 +579,8 @@ async function openConversation(id) {
       if (!boxes[id]) continue;
       boxes[id].el.innerHTML = md(turn.responses[id]);
       setStatus(boxes[id].status, 'done', false);
+      const text = turn.responses[id];
+      boxes[id].btn.onclick = () => humanize(boxes[id], () => text);
     }
   }
   conv.scrollTop = conv.scrollHeight;

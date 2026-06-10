@@ -237,6 +237,34 @@ app.post('/settings', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Rewrite a model's answer with the humanize-korean plugin (Claude runs the skill).
+// stream-json (not default text) because launchd's non-TTY claude emits nothing
+// in text mode. Body is wrapped in <<<R>>> tags so the skill's metrics get stripped.
+app.post('/humanize', (req, res) => {
+  const text = (req.body?.text || '').toString();
+  if (!text.trim()) return res.status(400).json({ error: 'empty text' });
+  const prompt = `아래 한글 텍스트를 humanize-korean 스킬로 윤문하세요. 윤문된 본문만 정확히 <<<R>>> 와 <<</R>>> 태그 사이에 넣어 출력하고, 그 외 설명·메트릭·상태줄은 출력하지 마세요.\n\n${text}`;
+  const child = spawn('claude', ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'],
+    { cwd: SCRATCH, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '', err = '';
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { err += d; });
+  child.on('error', (e) => { if (!res.writableEnded) res.status(500).json({ error: String(e) }); });
+  child.on('close', (code) => {
+    if (res.writableEnded) return;
+    if (code && code !== 0) return res.status(500).json({ error: err.trim() || `exit ${code}` });
+    let result = '';
+    for (const line of out.split('\n')) {
+      if (!line.trim()) continue;
+      try { const o = JSON.parse(line); if (o.type === 'result') result = o.result || ''; } catch {}
+    }
+    const tagged = result.match(/<<<R>>>([\s\S]*?)<<<\/R>>>/);
+    res.json({ text: (tagged ? tagged[1] : result).trim() });
+  });
+  // Kill only on real client disconnect, not when the POST body finishes.
+  res.on('close', () => { if (!res.writableEnded) child.kill('SIGTERM'); });
+});
+
 app.post('/ask', (req, res) => {
   const prompt = (req.body?.prompt || '').toString().trim();
   const conversationId = req.body?.conversationId || null;
