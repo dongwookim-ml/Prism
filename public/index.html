@@ -361,6 +361,44 @@ const md = (text) => DOMPurify.sanitize(marked.parse(text || ''));
 
 // Markdown + LaTeX: stash math spans before markdown (so $a_i$ isn't mangled),
 // run markdown, then restore them as MathJax \( \) / \[ \] delimiters.
+// Build <strong>/<em> from leftover **bold**/*italic* in a text run. marked's
+// CommonMark flanking rules drop emphasis next to CJK (e.g. **단어**라는), so we
+// repair what it left as literal text.
+function parseInline(s) {
+  const re = /\*\*([^*]+?)\*\*|__([^_]+?)__|\*([^*\s][^*]*?)\*|(?<![A-Za-z0-9])_([^_\s][^_]*?)_(?![A-Za-z0-9])/g;
+  const frag = document.createDocumentFragment();
+  let m, last = 0, any = false;
+  while ((m = re.exec(s))) {
+    any = true;
+    if (m.index > last) frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+    const bold = m[1] ?? m[2];
+    const node = document.createElement(bold != null ? 'strong' : 'em');
+    node.textContent = bold != null ? bold : (m[3] ?? m[4]);
+    frag.appendChild(node);
+    last = re.lastIndex;
+  }
+  if (!any) return null;
+  if (last < s.length) frag.appendChild(document.createTextNode(s.slice(last)));
+  return frag;
+}
+function fixEmphasis(root) {
+  const reTest = /\*\*[^*]+?\*\*|__[^_]+?__|\*[^*\s][^*]*?\*|_[^_\s][^_]*?_/;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => {
+      const tag = n.parentNode && n.parentNode.nodeName;
+      if (['CODE', 'PRE', 'A', 'STRONG', 'EM'].includes(tag)) return NodeFilter.FILTER_REJECT;
+      return reTest.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  for (const node of nodes) {
+    const frag = parseInline(node.nodeValue);
+    if (frag) node.parentNode.replaceChild(frag, node);
+  }
+}
+
 function mdMath(text) {
   const math = [];
   const stash = (tex, display) => { math.push({ tex, display }); return `@@MJX${math.length - 1}@@`; };
@@ -370,7 +408,10 @@ function mdMath(text) {
     .replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => stash(m, false))
     .replace(/(?<![\\$])\$(?!\s)([^\n$]+?)(?<![\\\s])\$(?!\d)/g, (_, m) => stash(m, false));
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return DOMPurify.sanitize(marked.parse(t)).replace(/@@MJX(\d+)@@/g, (_, i) => {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = DOMPurify.sanitize(marked.parse(t)); // math is still @@MJX@@ placeholders here
+  fixEmphasis(tmp);
+  return tmp.innerHTML.replace(/@@MJX(\d+)@@/g, (_, i) => {
     const { tex, display } = math[+i];
     return display ? `\\[${esc(tex)}\\]` : `\\(${esc(tex)}\\)`;
   });
