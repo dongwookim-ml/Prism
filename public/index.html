@@ -205,6 +205,10 @@
   }
   .humanize-btn:hover { background: #f3f3f7; }
   .humanize-btn:disabled { opacity: .5; cursor: default; }
+  .expand-btn { flex: none; border: none; background: none; color: #9a9aa5; cursor: pointer; padding: 3px; border-radius: 6px; display: flex; }
+  .expand-btn:hover { background: #f1f1f5; color: #555; }
+  .expand-btn svg { width: 15px; height: 15px; }
+  .responses.has-expanded .response-box:not(.expanded) { display: none; }
   .humanized { margin: 0 18px 16px; padding-top: 12px; border-top: 1px dashed var(--line); }
   .humanized-label { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .04em; margin-bottom: 6px; }
   .humanized-body { font-size: 16px; line-height: 1.6; color: #25252b; }
@@ -429,6 +433,12 @@ function buildTurn(prompt, attachments, modelIds) {
     body.className = 'assistant';
     box.appendChild(body);
     responses.appendChild(box);
+    const exp = document.createElement('button');
+    exp.className = 'expand-btn';
+    exp.title = 'Expand / collapse';
+    exp.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+    exp.onclick = () => toggleExpand(box);
+    box.querySelector('.rbox-head').appendChild(exp);
     const btn = document.createElement('button');
     btn.className = 'humanize-btn';
     btn.textContent = 'Humanize';
@@ -437,6 +447,15 @@ function buildTurn(prompt, attachments, modelIds) {
   }
   stream.appendChild(turn);
   return boxes;
+}
+
+// Click expand: one box fills the row (siblings hidden); click again restores.
+function toggleExpand(box) {
+  const row = box.parentElement;
+  const already = box.classList.contains('expanded');
+  row.querySelectorAll('.response-box.expanded').forEach((b) => b.classList.remove('expanded'));
+  if (already) row.classList.remove('has-expanded');
+  else { box.classList.add('expanded'); row.classList.add('has-expanded'); }
 }
 
 function setStatus(statusEl, label, running) {
