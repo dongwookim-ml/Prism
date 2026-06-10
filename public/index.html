@@ -58,6 +58,9 @@
     color: #7c6a3a; background: #f6f1e3; border-bottom: 1px solid #e7dcc2;
   }
   body.temp .temp-banner { display: block; }
+  .update-banner { display: none; text-align: center; padding: 8px 12px; font-size: 13px; color: #2b4a7c; background: #eaf1fb; border-bottom: 1px solid #cfe0f5; }
+  .update-banner.show { display: block; }
+  .update-banner .x { margin-left: 12px; cursor: pointer; color: #7a93b8; font-weight: 700; }
   .conv-list { flex: 1; overflow: auto; padding: 4px 8px 12px; }
   .conv-list .empty { color: #b6b6c0; font-size: 13px; padding: 10px 12px; }
   .conv-item {
@@ -291,6 +294,7 @@
 
     <div class="main">
       <div class="temp-banner" id="tempBanner">Temporary chat, not saved to history.</div>
+      <div class="update-banner" id="updateBanner"></div>
       <div class="conversation" id="conv"><div class="stream" id="stream"></div></div>
       <div class="composer">
         <div class="attachments" id="attachments"></div>
@@ -404,8 +408,25 @@ async function init() {
   defaultModels = s.defaultModels || MODELS.map((m) => m.id);
   serviceModels = s.models || {};
   await loadSidebar();
+  checkVersion();
   const cid = new URLSearchParams(location.search).get('conv');
   if (cid) openConversation(cid);
+}
+
+// Banner if origin/main is ahead of the running commit.
+async function checkVersion() {
+  try {
+    const v = await fetch('/version').then(r => r.json());
+    if (!(v.behind > 0)) return;
+    const b = document.getElementById('updateBanner');
+    b.textContent = `Update available: ${v.behind} new commit${v.behind > 1 ? 's' : ''}.`
+      + (v.latest ? ` Latest: ${v.latest}.` : '') + ' Run git pull to update.';
+    const x = document.createElement('span');
+    x.className = 'x'; x.textContent = '×';
+    x.onclick = () => b.classList.remove('show');
+    b.appendChild(x);
+    b.classList.add('show');
+  } catch {}
 }
 
 // Build one turn (prompt bubble + answer boxes for the targeted models);

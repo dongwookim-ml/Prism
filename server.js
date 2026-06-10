@@ -213,6 +213,21 @@ app.post('/conversations/:id/rename', (req, res) => {
   res.json({ ok: true, title: c.title });
 });
 
+// Is origin/main ahead of the running commit? Uses GitHub's compare API (public,
+// https) so it works under launchd without ssh keys or a git fetch.
+app.get('/version', async (_req, res) => {
+  try {
+    const { stdout } = await run('git', ['-C', __dirname, 'rev-parse', 'HEAD']);
+    const local = stdout.trim();
+    const r = await fetch(`https://api.github.com/repos/dongwookim-ml/Prism/compare/${local}...main`,
+      { headers: { 'User-Agent': 'prism', 'Accept': 'application/vnd.github+json' } });
+    if (!r.ok) return res.json({ behind: 0 });
+    const j = await r.json();
+    const latest = j.commits?.length ? j.commits[j.commits.length - 1].commit.message.split('\n')[0] : '';
+    res.json({ behind: j.ahead_by || 0, latest });
+  } catch { res.json({ behind: 0 }); }
+});
+
 app.get('/skills', async (_req, res) => {
   try { res.json(await listAllSkills()); }
   catch (e) { res.status(500).json({ error: String(e) }); }
