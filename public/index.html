@@ -124,7 +124,11 @@
   .skill-row input { margin-top: 3px; flex: none; }
   .skill-name { font-weight: 600; font-size: 14px; }
   .skill-text { min-width: 0; }
-  .skill-desc { display: block; font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 1px; }
+  .skill-desc { display: block; font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 3px; }
+  .skill-nameline { display: flex; align-items: center; gap: 6px; }
+  .skill-info { border: none; background: none; cursor: pointer; color: #b6b6c0; padding: 0; display: flex; }
+  .skill-info svg { width: 14px; height: 14px; }
+  .skill-info:hover { color: #777; }
   .skill-empty { font-size: 13px; color: #b6b6c0; padding: 4px 0 4px 17px; }
 
   /* Main */
@@ -1060,14 +1064,25 @@ function renderSkillsBody(data) {
         cb.dataset.name = s.name;
         const text = document.createElement('div');
         text.className = 'skill-text';
+        const nameLine = document.createElement('div');
+        nameLine.className = 'skill-nameline';
         const nm = document.createElement('span');
         nm.className = 'skill-name';
         nm.textContent = s.name;
-        text.appendChild(nm);
+        nameLine.appendChild(nm);
+        text.appendChild(nameLine);
         if (s.description) {
+          const info = document.createElement('button');
+          info.type = 'button';
+          info.className = 'skill-info';
+          info.title = 'Show description';
+          info.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
           const desc = document.createElement('span');
           desc.className = 'skill-desc';
           desc.textContent = s.description;
+          desc.style.display = 'none';
+          info.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); desc.style.display = desc.style.display === 'none' ? 'block' : 'none'; });
+          nameLine.appendChild(info);
           text.appendChild(desc);
         }
         row.append(cb, text);
