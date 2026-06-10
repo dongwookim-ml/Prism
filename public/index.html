@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>AggregationAI</title>
+<title>Prism</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <script src="/vendor/marked.umd.js"></script>
 <script src="/vendor/purify.min.js"></script>
@@ -64,6 +64,48 @@
   .conv-item:hover .del { opacity: 1; }
   .conv-item .del:hover { background: #d8d8e0; color: #555; }
 
+  /* Settings button (bottom-left) */
+  .settings-btn {
+    margin: 8px 12px 12px; padding: 9px 12px; border: 1px solid #dcdce4; border-radius: 10px;
+    background: #fff; cursor: pointer; font: inherit; font-size: 14px; color: #38383f;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .settings-btn:hover { background: #f3f3f7; }
+  .settings-btn svg { width: 16px; height: 16px; }
+
+  /* Settings modal */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center;
+    background: rgba(30,30,45,0.4); backdrop-filter: blur(2px);
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    width: min(620px, 92vw); max-height: 82vh; display: flex; flex-direction: column;
+    background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(20,20,40,0.25); overflow: hidden;
+  }
+  .modal-head { display: flex; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .modal-head h2 { margin: 0; font-size: 17px; flex: 1; }
+  .modal-close { border: none; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: #9a9aa5; }
+  .modal-close:hover { color: #555; }
+  .modal-body { padding: 4px 20px; overflow: auto; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); }
+  .btn-primary { padding: 9px 20px; border: none; border-radius: 10px; background: var(--ink); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn-secondary { padding: 9px 18px; border: 1px solid #dcdce4; border-radius: 10px; background: #fff; font: inherit; cursor: pointer; }
+  .skill-section { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .skill-section:last-child { border-bottom: none; }
+  .skill-provider { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .skill-provider .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .skill-provider .dot[data-id="claude"] { background: var(--claude); }
+  .skill-provider .dot[data-id="gemini"] { background: var(--gemini); }
+  .skill-provider .dot[data-id="codex"]  { background: var(--codex); }
+  .skill-note { font-size: 12px; color: var(--muted); margin: 0 0 6px 17px; }
+  .skill-row { display: flex; gap: 10px; padding: 7px 0 7px 17px; align-items: flex-start; cursor: pointer; }
+  .skill-row input { margin-top: 3px; flex: none; }
+  .skill-name { font-weight: 600; font-size: 14px; }
+  .skill-text { min-width: 0; }
+  .skill-desc { display: block; font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 1px; }
+  .skill-empty { font-size: 13px; color: #b6b6c0; padding: 4px 0 4px 17px; }
+
   /* Main */
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .conversation { flex: 1; overflow: auto; padding: 22px; }
@@ -111,7 +153,11 @@
   @keyframes pulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
 
   .assistant { flex: 1; padding: 16px 18px; font-size: 16px; line-height: 1.6; color: #25252b; }
-  .assistant:empty::before { content: "…"; color: #c8c8d0; }
+  .loader { display: inline-flex; gap: 6px; padding: 2px 0; }
+  .loader span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: .35; animation: dotbounce 1s infinite ease-in-out; }
+  .loader span:nth-child(2) { animation-delay: .15s; }
+  .loader span:nth-child(3) { animation-delay: .3s; }
+  @keyframes dotbounce { 0%, 80%, 100% { transform: translateY(0); opacity: .35; } 40% { transform: translateY(-5px); opacity: 1; } }
 
   /* Markdown */
   .assistant h1, .assistant h2, .assistant h3 { line-height: 1.3; margin: 1.1em 0 .5em; font-weight: 700; }
@@ -191,12 +237,16 @@
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <h1>AggregationAI</h1>
-        <div class="tag">one prompt, three models</div>
+        <h1>Prism</h1>
+        <div class="tag">one prompt, three perspectives</div>
       </div>
       <button class="newchat" id="newchat">+ New chat</button>
       <button class="newchat tempbtn" id="tempchat">Temporary chat</button>
       <div class="conv-list" id="convList"></div>
+      <button class="settings-btn" id="settingsBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </button>
     </aside>
 
     <div class="main">
@@ -219,11 +269,26 @@
   <input type="file" id="fileInput" multiple hidden />
   <div id="dropOverlay"><div class="box">Drop files to attach</div></div>
 
+  <div id="settingsModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Skills</h2>
+        <button class="modal-close" id="settingsClose">&times;</button>
+      </div>
+      <div class="modal-body" id="skillsBody"></div>
+      <div class="modal-foot">
+        <button class="btn-secondary" id="settingsCancel">Cancel</button>
+        <button class="btn-primary" id="settingsSave">Save</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 marked.setOptions({ gfm: true, breaks: true });
 const md = (text) => DOMPurify.sanitize(marked.parse(text || ''));
 const FILE_ICON = '<svg class="fileicon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
 const MAX_FILE = 25 * 1024 * 1024; // 25 MB per file
+const LOADER = '<div class="loader"><span></span><span></span><span></span></div>';
 
 const conv = document.getElementById('conv');
 const stream = document.getElementById('stream');
@@ -387,6 +452,7 @@ async function send() {
   const boxes = buildTurn(prompt, attachments, targetIds);
   active = {};
   for (const id of targetIds) {
+    boxes[id].el.innerHTML = LOADER; // bouncing dots until the first token arrives
     const slot = { raw: '', el: boxes[id].el, status: boxes[id].status, pending: false };
     setStatus(slot.status, 'thinking', true);
     active[id] = slot;
@@ -505,6 +571,85 @@ async function deleteConversation(id) {
   loadSidebar();
 }
 
+// ----- settings (skills) -----
+const PROVIDER_LABEL = { claude: 'Claude', gemini: 'Gemini', codex: 'ChatGPT (Codex)' };
+
+function renderSkills(data) {
+  const body = document.getElementById('skillsBody');
+  body.innerHTML = '';
+  for (const pid of ['claude', 'gemini', 'codex']) {
+    const section = document.createElement('div');
+    section.className = 'skill-section';
+    const head = document.createElement('div');
+    head.className = 'skill-provider';
+    head.innerHTML = `<span class="dot" data-id="${pid}"></span>`;
+    head.appendChild(document.createTextNode(PROVIDER_LABEL[pid]));
+    section.appendChild(head);
+
+    const skills = data[pid] || [];
+    if (pid === 'gemini' && skills.length) {
+      const note = document.createElement('div');
+      note.className = 'skill-note';
+      note.textContent = 'Changing these updates the Gemini CLI globally.';
+      section.appendChild(note);
+    }
+    if (!skills.length) {
+      const empty = document.createElement('div');
+      empty.className = 'skill-empty';
+      empty.textContent = 'No installed skills.';
+      section.appendChild(empty);
+    } else {
+      for (const s of skills) {
+        const row = document.createElement('label');
+        row.className = 'skill-row';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!s.enabled;
+        cb.dataset.provider = pid;
+        cb.dataset.name = s.name;
+        const text = document.createElement('div');
+        text.className = 'skill-text';
+        const nm = document.createElement('span');
+        nm.className = 'skill-name';
+        nm.textContent = s.name;
+        text.appendChild(nm);
+        if (s.description) {
+          const d = document.createElement('span');
+          d.className = 'skill-desc';
+          d.textContent = s.description;
+          text.appendChild(d);
+        }
+        row.append(cb, text);
+        section.appendChild(row);
+      }
+    }
+    body.appendChild(section);
+  }
+}
+
+async function openSettings() {
+  const body = document.getElementById('skillsBody');
+  body.innerHTML = '<div class="skill-empty">Loading…</div>';
+  document.getElementById('settingsModal').classList.add('show');
+  try { renderSkills(await fetch('/skills').then(r => r.json())); }
+  catch { body.innerHTML = '<div class="skill-empty">Failed to load skills.</div>'; }
+}
+
+function closeSettings() { document.getElementById('settingsModal').classList.remove('show'); }
+
+async function saveSettingsModal() {
+  const sel = { claude: [], gemini: [] };
+  document.querySelectorAll('#skillsBody input[type=checkbox]').forEach((cb) => {
+    if (cb.dataset.provider === 'codex') return;
+    if (cb.checked) sel[cb.dataset.provider].push(cb.dataset.name);
+  });
+  const btn = document.getElementById('settingsSave');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sel) });
+  btn.disabled = false; btn.textContent = 'Save';
+  closeSettings();
+}
+
 // ----- wiring -----
 const ta = document.getElementById('prompt');
 ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; });
@@ -514,6 +659,11 @@ ta.addEventListener('keydown', (e) => {
 document.getElementById('send').addEventListener('click', send);
 document.getElementById('newchat').addEventListener('click', newChat);
 document.getElementById('tempchat').addEventListener('click', toggleTemporary);
+document.getElementById('settingsBtn').addEventListener('click', openSettings);
+document.getElementById('settingsClose').addEventListener('click', closeSettings);
+document.getElementById('settingsCancel').addEventListener('click', closeSettings);
+document.getElementById('settingsSave').addEventListener('click', saveSettingsModal);
+document.getElementById('settingsModal').addEventListener('click', (e) => { if (e.target.id === 'settingsModal') closeSettings(); });
 
 const fileInput = document.getElementById('fileInput');
 document.getElementById('attachBtn').addEventListener('click', () => fileInput.click());

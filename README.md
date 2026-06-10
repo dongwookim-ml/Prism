@@ -1,6 +1,6 @@
-# AggregationAI
+# Prism
 
-One prompt, three answers side by side. A single web page fans your prompt out to
+One prompt refracted into three answers, side by side. A single web page fans your prompt out to
 **Claude**, **Gemini**, and **ChatGPT** by shelling out to each vendor's official CLI,
 so it runs on your existing **subscriptions** instead of per-token API billing.
 

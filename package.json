@@ -1,8 +1,8 @@
 {
-  "name": "aggregationai",
+  "name": "prism",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "One prompt refracted into three answers (Claude, Gemini, ChatGPT) via their CLIs.",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
