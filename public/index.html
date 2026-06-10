@@ -221,6 +221,30 @@
   .model-input { font: inherit; font-size: 13px; padding: 5px 9px; border: 1px solid #dcdce4; border-radius: 8px; background: #fff; min-width: 230px; }
   mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
 
+  /* Compare / synthesis */
+  .compare-bar { display: flex; justify-content: center; margin-top: 14px; }
+  .compare-btn { border: 1px solid var(--line); background: #fff; color: #4a4a55; font: inherit; font-size: 13px; font-weight: 600; padding: 7px 18px; border-radius: 10px; cursor: pointer; }
+  .compare-btn:hover { background: #f3f3f7; }
+  .compare-btn:disabled { opacity: .5; cursor: default; }
+  .synthesis { margin-top: 14px; background: #faf8ff; border: 1px solid #e7defb; border-radius: 14px; padding: 16px 20px; }
+  .synthesis-head { font-weight: 700; font-size: 14px; color: #6b4ea8; margin-bottom: 12px; }
+  .synthesis-body { font-size: var(--read-size); line-height: 1.6; }
+  .syn-section { margin-bottom: 14px; }
+  .syn-section:last-child { margin-bottom: 0; }
+  .syn-h { font-weight: 700; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: #8a7bb0; margin-bottom: 7px; }
+  .syn-consensus { margin: 0; padding-left: 0; list-style: none; }
+  .syn-consensus li { position: relative; padding-left: 22px; margin: 5px 0; font-size: var(--read-size); line-height: 1.5; }
+  .syn-consensus li::before { content: "\2713"; position: absolute; left: 0; color: var(--codex); font-weight: 700; }
+  .syn-diff { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .syn-diff:last-child { margin-bottom: 0; }
+  .syn-diff-topic { font-weight: 600; font-size: var(--read-size); margin-bottom: 6px; }
+  .syn-pos { display: flex; gap: 9px; align-items: baseline; margin: 5px 0; font-size: var(--read-size); line-height: 1.5; }
+  .syn-pill { flex: none; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; color: #fff; background: #9a9aa5; white-space: nowrap; }
+  .syn-pill[data-id="claude"] { background: var(--claude); }
+  .syn-pill[data-id="gemini"] { background: var(--gemini); }
+  .syn-pill[data-id="codex"] { background: var(--codex); }
+  .syn-stance { min-width: 0; }
+
   /* Composer */
   .composer { padding: 14px 16px 18px; }
   .attachments { max-width: 920px; margin: 0 auto 8px; display: none; flex-wrap: wrap; gap: 8px; }
@@ -491,8 +515,15 @@ function buildTurn(prompt, attachments, modelIds) {
     box.querySelector('.rbox-head').appendChild(btn);
     boxes[m.id] = { el: body, status: box.querySelector('.status'), box, btn };
   }
+  const compareBar = document.createElement('div');
+  compareBar.className = 'compare-bar';
+  const compareBtn = document.createElement('button');
+  compareBtn.className = 'compare-btn';
+  compareBtn.textContent = 'Compare answers';
+  compareBar.appendChild(compareBtn);
+  if (shown.length >= 2) turn.appendChild(compareBar);
   stream.appendChild(turn);
-  return boxes;
+  return { boxes, turn, compareBtn };
 }
 
 // Click expand: one box fills the row (siblings hidden); click again restores.
@@ -577,7 +608,7 @@ async function send() {
   const base = (defaultModels.length ? defaultModels : MODELS.map((m) => m.id));
   const pick = mentioned.length ? mentioned : base;
   const targetIds = MODELS.filter((m) => pick.includes(m.id)).map((m) => m.id);
-  const boxes = buildTurn(prompt, attachments, targetIds);
+  const { boxes, turn, compareBtn } = buildTurn(prompt, attachments, targetIds);
   active = {};
   for (const id of targetIds) {
     boxes[id].el.innerHTML = LOADER; // bouncing dots until the first token arrives
@@ -586,6 +617,7 @@ async function send() {
     slot.btn.onclick = () => humanize(slot, () => slot.raw);
     active[id] = slot;
   }
+  compareBtn.onclick = () => compare(turn, () => Object.fromEntries(targetIds.map((id) => [id, active[id]?.raw || ''])), compareBtn, prompt);
   conv.scrollTop = conv.scrollHeight;
 
   const res = await fetch('/ask', {
@@ -680,6 +712,104 @@ async function humanize(slot, getText) {
   btn.textContent = label;
 }
 
+// Semantic synthesis of a turn's answers, rendered with per-model colors.
+const MODEL_SHORT = { claude: 'Claude', gemini: 'Gemini', codex: 'ChatGPT' };
+
+async function compare(turn, getTexts, btn, prompt) {
+  const texts = getTexts();
+  if (Object.values(texts).filter((t) => t && t.trim()).length < 2) return;
+  btn.disabled = true;
+  const lbl = btn.textContent;
+  btn.textContent = 'Comparing…';
+  try {
+    const r = await fetch('/compare', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, responses: texts }),
+    }).then((res) => res.json());
+    if (r.text) renderSynthesis(turn, r.text);
+  } catch {}
+  btn.disabled = false;
+  btn.textContent = lbl;
+}
+
+function normModel(m) {
+  const x = String(m || '').toLowerCase();
+  if (x.includes('claude')) return 'claude';
+  if (x.includes('gemini')) return 'gemini';
+  if (x.includes('codex') || x.includes('chatgpt') || x.includes('gpt')) return 'codex';
+  return x;
+}
+function synPill(modelId) {
+  const id = normModel(modelId);
+  const s = document.createElement('span');
+  s.className = 'syn-pill';
+  s.dataset.id = id;
+  s.textContent = MODEL_SHORT[id] || modelId || '?';
+  return s;
+}
+function synSection(title) {
+  const sec = document.createElement('div');
+  sec.className = 'syn-section';
+  const h = document.createElement('div');
+  h.className = 'syn-h';
+  h.textContent = title;
+  sec.appendChild(h);
+  return sec;
+}
+function synRow(modelId, txt) {
+  const row = document.createElement('div');
+  row.className = 'syn-pos';
+  row.appendChild(synPill(modelId));
+  const sp = document.createElement('span');
+  sp.className = 'syn-stance';
+  sp.textContent = txt || '';
+  row.appendChild(sp);
+  return row;
+}
+
+function renderSynthesis(turn, text) {
+  let el = turn.querySelector('.synthesis');
+  if (!el) { el = document.createElement('div'); el.className = 'synthesis'; turn.appendChild(el); }
+  el.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'synthesis-head';
+  head.textContent = 'Synthesis';
+  el.appendChild(head);
+
+  let data = null;
+  try { data = JSON.parse(text); } catch {}
+  if (!data || typeof data !== 'object') { // fallback: render whatever came back as markdown
+    const body = document.createElement('div');
+    body.className = 'synthesis-body';
+    renderInto(body, text);
+    el.appendChild(body);
+    return;
+  }
+  if (Array.isArray(data.consensus) && data.consensus.length) {
+    const sec = synSection('Consensus');
+    const ul = document.createElement('ul');
+    ul.className = 'syn-consensus';
+    for (const p of data.consensus) { const li = document.createElement('li'); li.textContent = p; ul.appendChild(li); }
+    sec.appendChild(ul);
+    el.appendChild(sec);
+  }
+  if (Array.isArray(data.differences) && data.differences.length) {
+    const sec = synSection('Differences');
+    for (const d of data.differences) {
+      const card = document.createElement('div');
+      card.className = 'syn-diff';
+      if (d.topic) { const t = document.createElement('div'); t.className = 'syn-diff-topic'; t.textContent = d.topic; card.appendChild(t); }
+      for (const pos of (d.positions || [])) card.appendChild(synRow(pos.model, pos.stance));
+      sec.appendChild(card);
+    }
+    el.appendChild(sec);
+  }
+  if (Array.isArray(data.unique) && data.unique.length) {
+    const sec = synSection('Unique');
+    for (const u of data.unique) sec.appendChild(synRow(u.model, u.point));
+    el.appendChild(sec);
+  }
+}
+
 async function openConversation(id) {
   const c = await fetch('/conversations/' + id).then(r => r.json());
   markTemporary(false);
@@ -687,7 +817,7 @@ async function openConversation(id) {
   stream.innerHTML = '';
   for (const turn of c.turns) {
     const shownIds = Object.keys(turn.responses || {});
-    const boxes = buildTurn(turn.prompt, turn.attachments, shownIds);
+    const { boxes, turn: turnEl, compareBtn } = buildTurn(turn.prompt, turn.attachments, shownIds);
     for (const id of shownIds) {
       if (!boxes[id]) continue;
       renderInto(boxes[id].el, turn.responses[id]);
@@ -695,6 +825,7 @@ async function openConversation(id) {
       const text = turn.responses[id];
       boxes[id].btn.onclick = () => humanize(boxes[id], () => text);
     }
+    compareBtn.onclick = () => compare(turnEl, () => turn.responses, compareBtn, turn.prompt);
   }
   conv.scrollTop = conv.scrollHeight;
   loadSidebar();

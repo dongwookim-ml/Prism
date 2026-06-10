@@ -307,6 +307,37 @@ app.post('/humanize', (req, res) => {
   res.on('close', () => { if (!res.writableEnded) child.kill('SIGTERM'); });
 });
 
+// Semantic synthesis of the three answers (Consensus / Differences / Unique).
+app.post('/compare', (req, res) => {
+  const prompt = (req.body?.prompt || '').toString();
+  const responses = (req.body?.responses && typeof req.body.responses === 'object') ? req.body.responses : {};
+  const labels = { claude: 'Claude', gemini: 'Gemini', codex: 'ChatGPT' };
+  const parts = Object.entries(responses)
+    .filter(([, t]) => t && String(t).trim())
+    .map(([id, t]) => `### ${labels[id] || id}\n${t}`).join('\n\n');
+  if (!parts) return res.status(400).json({ error: 'no responses' });
+
+  const cmpPrompt = `Three AI assistants answered the same question. Compare them at a semantic level, not word by word.\n\nQuestion:\n${prompt || '(inferred from the answers)'}\n\nAnswers:\n${parts}\n\nOutput ONLY this JSON between <<<R>>> and <<</R>>> tags, with string values in the same language as the answers:\n{"consensus":["point all or most agree on", ...],"differences":[{"topic":"short topic","positions":[{"model":"claude|gemini|codex","stance":"what this model says"}]}],"unique":[{"model":"claude|gemini|codex","point":"point only this model raised"}]}\nKeep each string short. Omit unique if none. Only include models that actually answered.`;
+  const child = spawn('claude', ['-p', cmpPrompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
+    { cwd: SCRATCH, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '', err = '';
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { err += d; });
+  child.on('error', (e) => { if (!res.writableEnded) res.status(500).json({ error: String(e) }); });
+  child.on('close', (code) => {
+    if (res.writableEnded) return;
+    if (code && code !== 0) return res.status(500).json({ error: err.trim() || `exit ${code}` });
+    let result = '';
+    for (const line of out.split('\n')) {
+      if (!line.trim()) continue;
+      try { const o = JSON.parse(line); if (o.type === 'result') result = o.result || ''; } catch {}
+    }
+    const tagged = result.match(/<<<R>>>([\s\S]*?)<<<\/R>>>/);
+    res.json({ text: (tagged ? tagged[1] : result).trim() });
+  });
+  res.on('close', () => { if (!res.writableEnded) child.kill('SIGTERM'); });
+});
+
 app.post('/ask', (req, res) => {
   const prompt = (req.body?.prompt || '').toString().trim();
   const conversationId = req.body?.conversationId || null;
