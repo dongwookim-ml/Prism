@@ -61,7 +61,7 @@ function readSkillMeta(dir) {
   let name = '', description = '';
   for (let i = 0; i < lines.length; i++) {
     const n = lines[i].match(/^name:\s*(.*)$/);
-    if (n) name = n[1].trim();
+    if (n) name = n[1].trim().replace(/^["']|["']$/g, '');
     const d = lines[i].match(/^description:\s*(.*)$/);
     if (d) {
       let v = d[1].trim();
@@ -89,6 +89,30 @@ function claudeSkills() {
   return [...byName.values()];
 }
 
+// Codex discovers user skills under ~/.agents/skills and system/plugin skills
+// under ~/.codex/skills. Walk both trees because system skills are nested.
+function codexSkills() {
+  const byName = new Map();
+  const visited = new Set();
+  const visit = (dir) => {
+    let real;
+    try { real = fs.realpathSync(dir); } catch { return; }
+    if (visited.has(real)) return;
+    visited.add(real);
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    const meta = readSkillMeta(dir);
+    if (meta && !byName.has(meta.name)) byName.set(meta.name, meta);
+    for (const entry of entries) {
+      if (entry.isDirectory() || entry.isSymbolicLink()) visit(path.join(dir, entry.name));
+    }
+  };
+  visit(path.join(os.homedir(), '.agents', 'skills'));
+  visit(path.join(os.homedir(), '.codex', 'skills'));
+  visit(path.join(os.homedir(), '.codex', 'plugins'));
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // Gemini's skills via its CLI (name + enabled state, which Gemini persists itself).
 async function geminiSkills() {
   const { stdout } = await run('gemini', ['skills', 'list', '--all']);
@@ -103,9 +127,11 @@ async function geminiSkills() {
 async function listAllSkills() {
   const settings = loadSettings();
   const claudeEnabled = settings.skills?.claude; // undefined => all enabled
+  const codexEnabled = settings.skills?.codex;
   const claude = claudeSkills().map((s) => ({ ...s, enabled: claudeEnabled ? claudeEnabled.includes(s.name) : true }));
+  const codex = codexSkills().map((s) => ({ ...s, enabled: codexEnabled ? codexEnabled.includes(s.name) : true }));
   const gemini = await geminiSkills();
-  return { claude, gemini, codex: [] }; // Codex CLI exposes no user-selectable skills
+  return { claude, gemini, codex };
 }
 
 // Each model: how to invoke its CLI non-interactively, and how to pull plain
@@ -155,7 +181,7 @@ const MODELS = {
     args: (p, ctx) => {
       const a = ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only'];
       if (ctx.model) a.push('-m', ctx.model);
-      a.push(filePreamble(ctx.attachments) + p, ...(ctx.images || []).flatMap((img) => ['-i', img]));
+      a.push(filePreamble(ctx.attachments) + codexSkillPreamble(ctx.enabledSkills) + p, ...(ctx.images || []).flatMap((img) => ['-i', img]));
       return a;
     },
     parse: (o) => {
@@ -171,6 +197,15 @@ const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
 const filePreamble = (names) => names && names.length
   ? `The user attached these files in your current working directory: ${names.join(', ')}. Read or view them as needed to answer.\n\n`
   : '';
+
+// Codex has no per-skill enable/disable CLI flag. Tell it which app-selected
+// skills it may use; Codex's own skill instructions remain the source of truth.
+const codexSkillPreamble = (skills) => {
+  if (!skills) return '';
+  if (!skills.length) return 'Do not use any Codex skills for this request.\n\n';
+  const list = skills.map((s) => `- $${s.name}: ${s.description || 'Use when relevant.'}`).join('\n');
+  return `Codex skills enabled in Prism for this request:\n${list}\nUse only these skills, and only when the task matches.\n\n`;
+};
 
 // Build a per-model prompt that prepends that model's own prior turns, so
 // follow-ups carry context. Each pane is its own conversation thread.
@@ -242,6 +277,7 @@ app.get('/settings', (_req, res) => {
 app.post('/settings', async (req, res) => {
   const claude = Array.isArray(req.body?.claude) ? req.body.claude.map(String) : null;
   const gemini = Array.isArray(req.body?.gemini) ? req.body.gemini.map(String) : null;
+  const codex = Array.isArray(req.body?.codex) ? req.body.codex.map(String) : null;
   const defaultModels = Array.isArray(req.body?.defaultModels) ? req.body.defaultModels.filter((id) => MODELS[id]) : null;
   const serviceModels = (req.body?.models && typeof req.body.models === 'object') ? req.body.models : null;
 
@@ -264,6 +300,12 @@ app.post('/settings', async (req, res) => {
   if (claude) {
     const settings = loadSettings();
     settings.skills = { ...(settings.skills || {}), claude };
+    saveSettings(settings);
+  }
+  // Codex: app-scoped, stored and included as per-request skill guidance.
+  if (codex) {
+    const settings = loadSettings();
+    settings.skills = { ...(settings.skills || {}), codex };
     saveSettings(settings);
   }
   // Gemini: enable/disable is global state that Gemini persists itself.
@@ -364,9 +406,14 @@ app.post('/ask', (req, res) => {
   // Each model builds its own file-aware prompt from `attachments` (see MODELS).
   const basePrompt = prompt || (files.length ? 'Please review the attached file(s).' : '');
 
-  // Claude skills the user has switched off (disable the complement of the saved set).
-  const enabledClaude = loadSettings().skills?.claude; // undefined => all enabled
+  // Apply app-scoped Claude/Codex skill selections.
+  const skillSettings = loadSettings().skills || {};
+  const enabledClaude = skillSettings.claude; // undefined => all enabled
   const disabledSkills = enabledClaude ? claudeSkills().map((s) => s.name).filter((n) => !enabledClaude.includes(n)) : [];
+  const allCodexSkills = codexSkills();
+  const enabledCodex = skillSettings.codex
+    ? allCodexSkills.filter((s) => skillSettings.codex.includes(s.name))
+    : allCodexSkills;
 
   // Prior turns of this conversation become per-model context (none for new/temporary chats).
   const priorTurns = (!temporary && conversationId) ? (loadConv(conversationId)?.turns || []) : [];
@@ -400,7 +447,13 @@ app.post('/ask', (req, res) => {
 
   for (const id of ids) {
     const cfg = MODELS[id];
-    const child = spawn(cfg.cmd, cfg.args(withHistory(priorTurns, id, basePrompt), { images, attachments, disabledSkills, model: serviceModels[id] }), {
+    const child = spawn(cfg.cmd, cfg.args(withHistory(priorTurns, id, basePrompt), {
+      images,
+      attachments,
+      disabledSkills,
+      enabledSkills: id === 'codex' ? enabledCodex : undefined,
+      model: serviceModels[id],
+    }), {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -423,6 +476,12 @@ app.post('/ask', (req, res) => {
         }
         let parsed;
         try { parsed = JSON.parse(trimmed); } catch { continue; } // skip non-JSON noise
+        // Capture an error reason from the JSON stream (e.g. rate/usage limit),
+        // which CLIs report on stdout, not stderr.
+        if (parsed.is_error || parsed.type === 'error' || (parsed.type === 'result' && parsed.subtype && parsed.subtype !== 'success')) {
+          const why = parsed.result || parsed.message || parsed.error?.message || parsed.subtype;
+          if (why && !err.includes(why)) err += `${why}`;
+        }
         const text = cfg.parse(parsed);
         if (text) emitChunk(id, text);
       }

@@ -1038,6 +1038,12 @@ function renderSkillsBody(data) {
       note.textContent = 'Changing these updates the Gemini CLI globally.';
       section.appendChild(note);
     }
+    if (pid === 'codex' && skills.length) {
+      const note = document.createElement('div');
+      note.className = 'skill-note';
+      note.textContent = 'Prism tells Codex which selected skills it may use per request.';
+      section.appendChild(note);
+    }
     if (!skills.length) {
       const empty = document.createElement('div');
       empty.className = 'skill-empty';
@@ -1058,6 +1064,12 @@ function renderSkillsBody(data) {
         nm.className = 'skill-name';
         nm.textContent = s.name;
         text.appendChild(nm);
+        if (s.description) {
+          const desc = document.createElement('span');
+          desc.className = 'skill-desc';
+          desc.textContent = s.description;
+          text.appendChild(desc);
+        }
         row.append(cb, text);
         section.appendChild(row);
       }
@@ -1090,9 +1102,8 @@ async function saveSettingsModal() {
   btn.disabled = true; btn.textContent = 'Saving…';
   let payload;
   if (settingsMode === 'skills') {
-    const sel = { claude: [], gemini: [] };
+    const sel = { claude: [], gemini: [], codex: [] };
     document.querySelectorAll('#skillsBody input[data-provider]').forEach((cb) => {
-      if (cb.dataset.provider === 'codex') return;
       if (cb.checked) sel[cb.dataset.provider].push(cb.dataset.name);
     });
     payload = sel;
