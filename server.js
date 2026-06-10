@@ -268,8 +268,10 @@ app.post('/settings', async (req, res) => {
 app.post('/humanize', (req, res) => {
   const text = (req.body?.text || '').toString();
   if (!text.trim()) return res.status(400).json({ error: 'empty text' });
-  const prompt = `아래 한글 텍스트를 humanize-korean 스킬로 윤문하세요. 윤문된 본문만 정확히 <<<R>>> 와 <<</R>>> 태그 사이에 넣어 출력하고, 그 외 설명·메트릭·상태줄은 출력하지 마세요.\n\n${text}`;
-  const child = spawn('claude', ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'],
+  // One-shot rewrite, NOT the humanize-korean skill (which spawns subagents and
+  // is slow). sonnet + disallowed agentic tools force a single fast completion.
+  const prompt = `다음 한글 텍스트를 사람이 쓴 것처럼 자연스럽게 윤문하세요. AI 티(번역투, 무생물 주어, 피동 남용, 과한 수식어, hedging, 기계적 병렬, 접속사 남발, 형식명사 남발)를 제거하되 의미, 사실, 숫자, 인용은 절대 바꾸지 마세요. 설명이나 메트릭 없이 윤문된 본문만 <<<R>>> 와 <<</R>>> 태그 사이에 출력하세요.\n\n${text}`;
+  const child = spawn('claude', ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
     { cwd: SCRATCH, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '', err = '';
   child.stdout.on('data', (d) => { out += d; });
