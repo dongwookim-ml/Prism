@@ -232,6 +232,7 @@
   .compare-btn:disabled { opacity: .5; cursor: default; }
   .synthesis { margin-top: 14px; background: #faf8ff; border: 1px solid #e7defb; border-radius: 14px; padding: 16px 20px; }
   .synthesis-head { font-weight: 700; font-size: 14px; color: #6b4ea8; margin-bottom: 12px; }
+  .synthesis .loader span { background: #9b7fd0; }
   .synthesis-body { font-size: var(--read-size); line-height: 1.6; }
   .syn-section { margin-bottom: 14px; }
   .syn-section:last-child { margin-bottom: 0; }
@@ -662,7 +663,7 @@ async function send() {
     slot.btn.onclick = () => humanize(slot, () => slot.raw);
     active[id] = slot;
   }
-  compareBtn.onclick = () => compare(turn, () => Object.fromEntries(targetIds.map((id) => [id, active[id]?.raw || ''])), compareBtn, prompt);
+  compareBtn.onclick = () => compare(turn, () => Object.fromEntries(targetIds.map((id) => [id, boxes[id].el.textContent || ''])), compareBtn, prompt);
   conv.scrollTop = conv.scrollHeight;
 
   const res = await fetch('/ask', {
@@ -766,12 +767,19 @@ async function compare(turn, getTexts, btn, prompt) {
   btn.disabled = true;
   const lbl = btn.textContent;
   btn.textContent = 'Comparing…';
+  let el = turn.querySelector('.synthesis');
+  if (!el) { el = document.createElement('div'); el.className = 'synthesis'; turn.appendChild(el); }
+  el.innerHTML = '<div class="synthesis-head">Synthesis</div>' + LOADER;
+  el.scrollIntoView({ block: 'nearest' });
   try {
     const r = await fetch('/compare', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, responses: texts }),
     }).then((res) => res.json());
     if (r.text) renderSynthesis(turn, r.text);
-  } catch {}
+    else el.innerHTML = '<div class="synthesis-head">Synthesis</div><div class="skill-empty">' + (r.error || 'No result.') + '</div>';
+  } catch {
+    el.innerHTML = '<div class="synthesis-head">Synthesis</div><div class="skill-empty">Compare failed.</div>';
+  }
   btn.disabled = false;
   btn.textContent = lbl;
 }
