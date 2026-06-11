@@ -220,6 +220,16 @@
   .expand-btn:hover { background: #f1f1f5; color: #555; }
   .expand-btn svg { width: 15px; height: 15px; }
   .responses.has-expanded .response-box:not(.expanded) { display: none; }
+  .rbox-del { flex: none; border: none; background: none; color: #c2c2cc; cursor: pointer; font-size: 17px; line-height: 1; padding: 0 4px; }
+  .rbox-del:hover { color: #d9534f; }
+  .msg.user { position: relative; }
+  .turn-del {
+    position: absolute; top: -9px; right: -9px; width: 20px; height: 20px; border-radius: 50%;
+    border: 1px solid var(--line); background: #fff; color: #999; cursor: pointer; font-size: 13px;
+    line-height: 1; display: none; align-items: center; justify-content: center; padding: 0;
+  }
+  .turn:hover .turn-del { display: flex; }
+  .turn-del:hover { color: #d9534f; border-color: #e0b4b4; }
   .humanized { margin: 0 18px 16px; padding-top: 12px; border-top: 1px dashed var(--line); }
   .humanized-label { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .04em; margin-bottom: 6px; }
   .humanized-body { font-size: var(--read-size); line-height: 1.6; color: #25252b; }
@@ -545,6 +555,12 @@ function buildTurn(prompt, attachments, modelIds) {
     p.textContent = prompt;
     user.appendChild(p);
   }
+  const turnDel = document.createElement('button');
+  turnDel.className = 'turn-del';
+  turnDel.title = 'Delete this prompt and its answers';
+  turnDel.textContent = '×';
+  turnDel.onclick = () => deleteTurn(turn);
+  user.appendChild(turnDel);
   const responses = document.createElement('div');
   responses.className = 'responses';
   turn.append(user, responses);
@@ -570,6 +586,12 @@ function buildTurn(prompt, attachments, modelIds) {
     btn.className = 'humanize-btn';
     btn.textContent = 'Humanize';
     box.querySelector('.rbox-head').appendChild(btn);
+    const del = document.createElement('button');
+    del.className = 'rbox-del';
+    del.title = 'Delete this answer';
+    del.textContent = '×';
+    del.onclick = () => deleteResponse(turn, m.id, box);
+    box.querySelector('.rbox-head').appendChild(del);
     boxes[m.id] = { el: body, status: box.querySelector('.status'), box, btn };
   }
   const compareBar = document.createElement('div');
@@ -952,6 +974,24 @@ function startRename(titleEl, c) {
   titleEl.addEventListener('keydown', onKey);
   titleEl.addEventListener('blur', onBlur);
   titleEl.focus();
+}
+
+async function deleteResponse(turnEl, modelId, boxEl) {
+  const ti = turnEl.dataset.turnIndex;
+  if (currentId && ti != null) {
+    await fetch(`/conversations/${currentId}/turns/${ti}/responses/${modelId}`, { method: 'DELETE' });
+  }
+  boxEl.remove();
+}
+
+async function deleteTurn(turnEl) {
+  const ti = turnEl.dataset.turnIndex;
+  if (currentId && ti != null) {
+    await fetch(`/conversations/${currentId}/turns/${ti}`, { method: 'DELETE' });
+    openConversation(currentId); // turn indices shift, re-render from server
+    return;
+  }
+  turnEl.remove();
 }
 
 async function deleteConversation(id) {

@@ -243,6 +243,26 @@ app.delete('/conversations/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+app.delete('/conversations/:id/turns/:turnIndex', (req, res) => {
+  const c = loadConv(req.params.id);
+  const ti = Number(req.params.turnIndex);
+  if (!c || !Number.isInteger(ti) || !c.turns[ti]) return res.status(404).json({ error: 'not found' });
+  c.turns.splice(ti, 1);
+  c.updatedAt = new Date().toISOString();
+  saveConv(c);
+  res.json({ ok: true });
+});
+
+app.delete('/conversations/:id/turns/:turnIndex/responses/:model', (req, res) => {
+  const c = loadConv(req.params.id);
+  const ti = Number(req.params.turnIndex);
+  if (!c || !c.turns[ti]) return res.status(404).json({ error: 'not found' });
+  if (c.turns[ti].responses) delete c.turns[ti].responses[req.params.model];
+  c.updatedAt = new Date().toISOString();
+  saveConv(c);
+  res.json({ ok: true });
+});
+
 app.post('/conversations/:id/rename', (req, res) => {
   const c = loadConv(req.params.id);
   if (!c) return res.status(404).json({ error: 'not found' });
