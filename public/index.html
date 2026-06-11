@@ -139,7 +139,12 @@
     content: "Ask Claude, Gemini, and ChatGPT the same thing at once. Drop files to attach.";
     color: #b6b6c0; font-size: 17px;
   }
-  .stream { max-width: 1500px; margin: 0 auto; }
+  .stream { max-width: none; margin: 0 auto; }
+  /* Narrow screens: stack the answer columns instead of cramming three across. */
+  @media (max-width: 900px) {
+    .responses { flex-direction: column; }
+    .conversation { padding: 16px 12px; }
+  }
 
   .turn { margin-bottom: 30px; }
   .turn:last-child { margin-bottom: 8px; }
