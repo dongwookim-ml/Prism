@@ -213,10 +213,16 @@ const codexSkillPreamble = (skills) => {
 // Build a per-model prompt that prepends that model's own prior turns, so
 // follow-ups carry context. Each pane is its own conversation thread.
 function withHistory(priorTurns, id, current) {
+  const clean = (s) => String(s || '').replace(//g, '\n').trim();
   const hist = priorTurns
-    .filter((t) => t.responses && t.responses[id])
+    .filter((t) => t.responses && Object.values(t.responses).some((v) => clean(v)))
     .slice(-12) // bound prompt growth on long chats
-    .map((t) => `User: ${t.prompt || '[attached files]'}\nAssistant: ${t.responses[id]}`)
+    .map((t) => {
+      // This model's own answer if it has one, else another model's (so it still
+      // sees what was discussed when an earlier turn targeted a specific model).
+      const ans = clean(t.responses[id]) || clean(Object.values(t.responses).find((v) => clean(v)));
+      return `User: ${t.prompt || '[attached files]'}\nAssistant: ${ans}`;
+    })
     .join('\n\n');
   if (!hist) return current;
   return `Earlier in this conversation:\n\n${hist}\n\nReply to the user's new message below, using that context.\n\nUser: ${current}`;
