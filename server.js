@@ -525,4 +525,30 @@ app.post('/ask', (req, res) => {
   });
 });
 
+// A long-running process can't spawn a CLI that updated underneath it (the
+// binary/symlink is swapped). Watch the CLIs and exit on change so launchd's
+// KeepAlive respawns a fresh process that resolves the new binary.
+function whichPath(cmd) {
+  for (const dir of (process.env.PATH || '').split(':')) {
+    const p = path.join(dir, cmd);
+    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch {}
+  }
+  return null;
+}
+function cliFingerprint() {
+  const cmds = [...new Set(Object.values(MODELS).map((m) => m.cmd))];
+  return cmds.map((c) => {
+    try { const s = fs.statSync(whichPath(c)); return `${c}:${s.mtimeMs}:${s.size}`; } catch { return `${c}:none`; }
+  }).join('|');
+}
+let cliBaseline = cliFingerprint();
+setInterval(() => {
+  const now = cliFingerprint();
+  if (now !== cliBaseline && !now.includes(':none')) { // skip mid-update (binary briefly absent)
+    console.log('CLI updated; restarting.');
+    process.exit(0);
+  }
+  if (!now.includes(':none')) cliBaseline = now;
+}, 30000);
+
 app.listen(PORT, () => console.log(`Prism on http://localhost:${PORT}`));
