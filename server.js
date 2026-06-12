@@ -9,7 +9,10 @@ const PORT = process.env.PORT || 3000;
 
 // Agentic CLIs run with this as their working root so they never touch real projects.
 const SCRATCH = path.join(os.tmpdir(), 'aggai-scratch');
-fs.mkdirSync(SCRATCH, { recursive: true });
+// macOS periodically purges $TMPDIR; a spawn with a missing cwd fails with
+// ENOENT. Re-create the scratch dir before every use, not just at startup.
+function ensureScratch() { fs.mkdirSync(SCRATCH, { recursive: true }); return SCRATCH; }
+ensureScratch();
 
 // Conversations are persisted as one JSON file per chat under data/.
 const DATA_DIR = path.join(__dirname, 'data');
@@ -358,7 +361,7 @@ app.post('/humanize', (req, res) => {
   // is slow). sonnet + disallowed agentic tools force a single fast completion.
   const prompt = `다음 한글 텍스트를 사람이 쓴 것처럼 자연스럽게 윤문하세요. AI 티(번역투, 무생물 주어, 피동 남용, 과한 수식어, hedging, 기계적 병렬, 접속사 남발, 형식명사 남발)를 제거하되 의미, 사실, 숫자, 인용은 절대 바꾸지 마세요. 설명이나 메트릭 없이 윤문된 본문만 <<<R>>> 와 <<</R>>> 태그 사이에 출력하세요.\n\n${text}`;
   const child = spawn('claude', ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
-    { cwd: SCRATCH, stdio: ['ignore', 'pipe', 'pipe'] });
+    { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '', err = '';
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { err += d; });
@@ -404,7 +407,7 @@ app.post('/criticize', (req, res) => {
       .map((o) => `### ${MODELS[o].label.split(' ')[0]}\n${clean(responses[o])}`).join('\n\n');
     const what = target ? `that assistant's answer` : `the other assistants' answers`;
     const critPrompt = `Several AI assistants answered the same question.\n\nQuestion:\n${prompt || '(see answers)'}\n\nYour answer:\n${clean(responses[id])}\n\n${target ? 'Another assistant answered' : 'The other assistants answered'}:\n\n${subjects}\n\nCritique ${what}: factual errors, questionable claims, omissions, and where it is weaker or stronger than yours. Be specific and fair; concede good points. Concise markdown, same language as the answers. Do not restate your own answer.`;
-    const child = spawn(cfg.cmd, cfg.args(critPrompt, {}), { cwd: SCRATCH, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cfg.cmd, cfg.args(critPrompt, {}), { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
     children.push(child);
     let out = '', err = '';
     critiques[id] = '';
@@ -459,7 +462,7 @@ app.post('/compare', (req, res) => {
 
   const cmpPrompt = `Three AI assistants answered the same question. Compare them at a semantic level, not word by word.\n\nQuestion:\n${prompt || '(inferred from the answers)'}\n\nAnswers:\n${parts}\n\nOutput ONLY this JSON between <<<R>>> and <<</R>>> tags, with string values in the same language as the answers:\n{"consensus":["point all or most agree on", ...],"differences":[{"topic":"short topic","positions":[{"model":"claude|gemini|codex","stance":"what this model says"}]}],"unique":[{"model":"claude|gemini|codex","point":"point only this model raised"}]}\nKeep each string short. Omit unique if none. Only include models that actually answered.`;
   const child = spawn('claude', ['-p', cmpPrompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
-    { cwd: SCRATCH, stdio: ['ignore', 'pipe', 'pipe'] });
+    { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '', err = '';
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { err += d; });
@@ -494,7 +497,7 @@ app.post('/ask', (req, res) => {
   // Uploaded files are written into a per-request dir that becomes each CLI's
   // working directory, so the agents can read/view them. They're named in the
   // prompt; images are also handed to Codex via -i.
-  let cwd = SCRATCH;
+  let cwd = ensureScratch();
   const images = [];
   const attachments = [];
   if (files.length) {

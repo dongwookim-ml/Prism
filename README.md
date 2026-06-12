@@ -15,6 +15,44 @@ Node/Express
    |- spawn  codex exec --json ...                       -> pane 3
 ```
 
+## Features
+
+**Asking**
+- One prompt fans out to all three models; answers stream side by side.
+- `@Claude` / `@Gemini` / `@Codex` (or `@ChatGPT`) targets only those models; no
+  mention uses your default models (Settings).
+- Drag & drop (or paperclip) attaches text, code, images, and PDFs.
+- Every model sees the full conversation history, including turns answered by
+  other models, so follow-ups work across panes.
+- Markdown and LaTeX (MathJax) rendering; Enter sends, Shift+Enter newlines.
+
+**Comparing the models**
+- **Compare answers**: a semantic synthesis of the turn: consensus, differences
+  (who says what), and unique points.
+- **Criticize**: every model critiques the other models' answers; or click the
+  `!` icon on one box to have the others critique just that answer.
+- Syntheses and critiques are saved with the chat.
+
+**Per-response tools** (box header)
+- Expand a box to full width, copy the answer as markdown, delete an answer
+  (also removed from future context).
+- **Humanize**: rewrite an answer to remove the AI tone (Korean text); a
+  Settings toggle applies it to every response automatically.
+
+**Chats**
+- Auto-saved history in the sidebar: rename (double-click), delete, deep-link
+  via `?conv=<id>`.
+- **Temporary chat** mode: nothing is saved.
+- Per-turn and per-response deletion edits what context later turns see.
+
+**Settings & Skills**
+- Default models, base model per service (`opus`/`sonnet`/`haiku` or custom),
+  font family/size.
+- Enable/disable each CLI's skills (Claude, Gemini, Codex) from the Skills
+  panel.
+- Update banner when the GitHub repo is ahead of your running version; the
+  server auto-restarts when a CLI binary updates.
+
 ## Prerequisites
 
 The three CLIs must be installed and **logged in** (each uses its own subscription auth):
