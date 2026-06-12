@@ -221,6 +221,7 @@
   }
   .humanize-btn:hover { background: #f3f3f7; }
   .humanize-btn:disabled { opacity: .5; cursor: default; }
+  body.humanize-auto .humanize-btn { display: none; }
   .expand-btn { flex: none; border: none; background: none; color: #9a9aa5; cursor: pointer; padding: 3px; border-radius: 6px; display: flex; }
   .expand-btn:hover { background: #f1f1f5; color: #555; }
   .expand-btn svg { width: 15px; height: 15px; }
@@ -467,6 +468,9 @@ function applyFont() {
   document.documentElement.style.setProperty('--read-size', SIZES[s] || SIZES.medium);
 }
 applyFont();
+const humanizeDefaultOn = () => localStorage.getItem('prism.humanizeDefault') === '1';
+function applyHumanizeDefault() { document.body.classList.toggle('humanize-auto', humanizeDefaultOn()); }
+applyHumanizeDefault();
 
 const conv = document.getElementById('conv');
 const stream = document.getElementById('stream');
@@ -742,6 +746,7 @@ function handle(evt) {
   } else if (evt.type === 'done') {
     scheduleRender(slot);
     setStatus(slot.status, 'done', false);
+    if (humanizeDefaultOn() && slot.raw.trim()) humanize(slot, () => slot.raw);
   }
 }
 
@@ -1085,6 +1090,18 @@ function renderSettingsBody() {
   asec.appendChild(ah);
   asec.appendChild(fontRow('Font', 'prism.font', { system: 'System', serif: 'Serif', mono: 'Mono' }, 'system'));
   asec.appendChild(fontRow('Size', 'prism.size', { small: 'Small', medium: 'Medium', large: 'Large' }, 'medium'));
+  const hrow = document.createElement('label');
+  hrow.className = 'skill-row';
+  hrow.style.alignItems = 'center';
+  const hcb = document.createElement('input');
+  hcb.type = 'checkbox';
+  hcb.checked = humanizeDefaultOn();
+  hcb.onchange = () => { localStorage.setItem('prism.humanizeDefault', hcb.checked ? '1' : '0'); applyHumanizeDefault(); };
+  const hnm = document.createElement('span');
+  hnm.className = 'skill-name';
+  hnm.textContent = 'Humanize all responses';
+  hrow.append(hcb, hnm);
+  asec.appendChild(hrow);
   body.appendChild(asec);
 
   const dsec = document.createElement('div');
