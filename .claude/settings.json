@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=$(jq -r \".tool_input.file_path // empty\"); case \"$f\" in *server.js|*public/index.html) echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"Prism docs check: this change may affect user-facing behavior. Review and update if needed: the Help modal + welcome card in public/index.html, README.md, and AGENTS.md (or CLAUDE.md).\\\"}}\";; esac",
+            "command": "f=$(jq -r \".tool_input.file_path // empty\"); case \"$f\" in *server.js|*public/index.html) echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"Prism docs check: this change may affect user-facing behavior. Review and update if needed: the Help modal + welcome card in public/index.html, README.md, and AGENTS.md (or CLAUDE.md). If the interface changed significantly, also retake docs/screenshot.png (headless Chrome against a demo conversation, sidebar cropped) and update the README image.\\\"}}\";; esac",
             "timeout": 10
           }
         ]
