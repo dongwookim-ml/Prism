@@ -806,7 +806,10 @@ async function loadSidebar() {
 
 // Rewrite a box's answer via the humanize-korean plugin, shown below the original.
 async function humanize(slot, getText) {
-  const text = (getText() || '').trim();
+  // Codex text may carry U+001E-separated skill preambles; humanize only the
+  // final segment (the actual answer).
+  const parts = (getText() || '').split('').map((s) => s.trim()).filter(Boolean);
+  const text = parts.pop() || '';
   if (!text) return;
   const btn = slot.btn;
   btn.disabled = true;
