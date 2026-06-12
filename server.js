@@ -385,8 +385,11 @@ app.post('/criticize', (req, res) => {
   const conversationId = req.body?.conversationId;
   const turnIndex = Number.isInteger(req.body?.turnIndex) ? req.body.turnIndex : null;
   const clean = (s) => String(s || '').replace(//g, '\n').trim();
-  const ids = Object.keys(responses).filter((id) => MODELS[id] && clean(responses[id]));
-  if (ids.length < 2) return res.status(400).json({ error: 'need at least two responses' });
+  const answered = Object.keys(responses).filter((id) => MODELS[id] && clean(responses[id]));
+  if (answered.length < 2) return res.status(400).json({ error: 'need at least two responses' });
+  // Optional: critique a single target model's answer (critics = the others).
+  const target = (req.body?.target && MODELS[req.body.target] && answered.includes(req.body.target)) ? req.body.target : null;
+  const ids = target ? answered.filter((id) => id !== target) : answered;
 
   res.set({ 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
@@ -397,9 +400,10 @@ app.post('/criticize', (req, res) => {
   const children = [];
   for (const id of ids) {
     const cfg = MODELS[id];
-    const others = ids.filter((o) => o !== id)
+    const subjects = (target ? [target] : answered.filter((o) => o !== id))
       .map((o) => `### ${MODELS[o].label.split(' ')[0]}\n${clean(responses[o])}`).join('\n\n');
-    const critPrompt = `Several AI assistants answered the same question.\n\nQuestion:\n${prompt || '(see answers)'}\n\nYour answer:\n${clean(responses[id])}\n\nThe other assistants answered:\n\n${others}\n\nCritique the other assistants' answers: factual errors, questionable claims, omissions, and where they are weaker or stronger than yours. Be specific and fair; concede good points. Concise markdown, same language as the answers. Do not restate your own answer.`;
+    const what = target ? `that assistant's answer` : `the other assistants' answers`;
+    const critPrompt = `Several AI assistants answered the same question.\n\nQuestion:\n${prompt || '(see answers)'}\n\nYour answer:\n${clean(responses[id])}\n\n${target ? 'Another assistant answered' : 'The other assistants answered'}:\n\n${subjects}\n\nCritique ${what}: factual errors, questionable claims, omissions, and where it is weaker or stronger than yours. Be specific and fair; concede good points. Concise markdown, same language as the answers. Do not restate your own answer.`;
     const child = spawn(cfg.cmd, cfg.args(critPrompt, {}), { cwd: SCRATCH, stdio: ['ignore', 'pipe', 'pipe'] });
     children.push(child);
     let out = '', err = '';
@@ -427,7 +431,12 @@ app.post('/criticize', (req, res) => {
       if (--remaining === 0) {
         if (conversationId && turnIndex != null) {
           const c = loadConv(conversationId);
-          if (c && c.turns[turnIndex]) { c.turns[turnIndex].critiques = critiques; saveConv(c); }
+          if (c && c.turns[turnIndex]) {
+            const t = c.turns[turnIndex];
+            if (target) { t.critiquesOf = t.critiquesOf || {}; t.critiquesOf[target] = critiques; }
+            else t.critiques = critiques;
+            saveConv(c);
+          }
         }
         res.end();
       }

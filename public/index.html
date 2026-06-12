@@ -257,6 +257,9 @@
   .critique-label { font-size: 11px; font-weight: 700; color: #b0533a; letter-spacing: .04em; margin-bottom: 6px; }
   .critique-body { font-size: var(--read-size); line-height: 1.6; color: #25252b; }
   .critique .loader span { background: #cc8a70; }
+  .critof-row { display: flex; gap: 9px; align-items: flex-start; margin: 8px 0; }
+  .critof-row .syn-pill { margin-top: 3px; }
+  .critof-row .critique-body { min-width: 0; flex: 1; }
   .compare-btn { border: 1px solid var(--line); background: #fff; color: #4a4a55; font: inherit; font-size: 13px; font-weight: 600; padding: 7px 18px; border-radius: 10px; cursor: pointer; }
   .compare-btn:hover { background: #f3f3f7; }
   .compare-btn:disabled { opacity: .5; cursor: default; }
@@ -618,6 +621,11 @@ function buildTurn(prompt, attachments, modelIds) {
     cp.innerHTML = COPY_SVG;
     cp.onclick = () => copyResponse(box, cp);
     box.querySelector('.rbox-head').appendChild(cp);
+    const crit = document.createElement('button');
+    crit.className = 'copy-btn crit-one-btn';
+    crit.title = 'Have the other models criticize this answer';
+    crit.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+    box.querySelector('.rbox-head').appendChild(crit);
     const btn = document.createElement('button');
     btn.className = 'humanize-btn';
     btn.textContent = 'Humanize';
@@ -628,7 +636,7 @@ function buildTurn(prompt, attachments, modelIds) {
     del.textContent = '×';
     del.onclick = () => deleteResponse(turn, m.id, box);
     box.querySelector('.rbox-head').appendChild(del);
-    boxes[m.id] = { el: body, status: box.querySelector('.status'), box, btn };
+    boxes[m.id] = { el: body, status: box.querySelector('.status'), box, btn, critBtn: crit };
   }
   const compareBar = document.createElement('div');
   compareBar.className = 'compare-bar';
@@ -739,6 +747,10 @@ async function send() {
   }
   compareBtn.onclick = () => compare(turn, () => Object.fromEntries(targetIds.map((id) => [id, boxes[id].el.textContent || ''])), compareBtn, prompt);
   criticizeBtn.onclick = () => criticize(turn, () => Object.fromEntries(targetIds.map((id) => [id, boxes[id].box._md || ''])), criticizeBtn, prompt);
+  turn._prompt = prompt;
+  for (const id of targetIds) {
+    boxes[id].critBtn.onclick = () => criticizeOne(turn, () => Object.fromEntries(targetIds.map((x) => [x, boxes[x].box._md || ''])), id, boxes[id].box, boxes[id].critBtn);
+  }
   conv.scrollTop = conv.scrollHeight;
 
   const res = await fetch('/ask', {
@@ -937,6 +949,63 @@ async function criticize(turn, getTexts, btn, prompt) {
   btn.textContent = lbl;
 }
 
+// Targeted critiques: rows (one per critic) under the criticized box.
+function critiquesOfRow(box, criticId) {
+  let el = box.querySelector('.critiques-of');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'critique critiques-of';
+    el.innerHTML = '<div class="critique-label">Critiques of this answer</div>';
+    box.appendChild(el);
+  }
+  let row = el.querySelector(`.critof-row[data-critic="${criticId}"]`);
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'critof-row';
+    row.dataset.critic = criticId;
+    const pill = synPill(criticId);
+    const body = document.createElement('div');
+    body.className = 'critique-body';
+    row.append(pill, body);
+    el.appendChild(row);
+  }
+  return row.querySelector('.critique-body');
+}
+
+async function criticizeOne(turn, getTexts, targetId, box, btn) {
+  const texts = getTexts();
+  if (Object.keys(texts).filter((id) => texts[id] && texts[id].trim()).length < 2) return;
+  btn.disabled = true;
+  const critics = Object.keys(texts).filter((id) => id !== targetId && texts[id] && texts[id].trim());
+  const bodies = {}, raws = {};
+  for (const id of critics) { bodies[id] = critiquesOfRow(box, id); bodies[id].innerHTML = LOADER; raws[id] = ''; }
+  try {
+    const res = await fetch('/criticize', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: turn._prompt || '', responses: texts, target: targetId, conversationId: currentId, turnIndex: turn.dataset.turnIndex != null ? Number(turn.dataset.turnIndex) : undefined }),
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        const evt = JSON.parse(line);
+        if (evt.type === 'chunk' && bodies[evt.model] != null) {
+          raws[evt.model] += evt.text;
+          renderInto(bodies[evt.model], raws[evt.model]);
+        }
+      }
+    }
+  } catch {}
+  btn.disabled = false;
+}
+
 function synPill(modelId) {
   const id = normModel(modelId);
   const s = document.createElement('span');
@@ -1028,11 +1097,24 @@ async function openConversation(id) {
     }
     compareBtn.onclick = () => compare(turnEl, () => turn.responses, compareBtn, turn.prompt);
     criticizeBtn.onclick = () => criticize(turnEl, () => turn.responses, criticizeBtn, turn.prompt);
+    turnEl._prompt = turn.prompt;
+    for (const id of shownIds) {
+      if (!boxes[id]) continue;
+      boxes[id].critBtn.onclick = () => criticizeOne(turnEl, () => turn.responses, id, boxes[id].box, boxes[id].critBtn);
+    }
     if (turn.synthesis) renderSynthesis(turnEl, turn.synthesis);
     if (turn.critiques) {
       for (const [id, text] of Object.entries(turn.critiques)) {
         if (!text || !boxes[id]) continue;
         renderInto(critiqueEl(boxes[id].box), text);
+      }
+    }
+    if (turn.critiquesOf) {
+      for (const [tid, byCritic] of Object.entries(turn.critiquesOf)) {
+        if (!boxes[tid]) continue;
+        for (const [cid, text] of Object.entries(byCritic)) {
+          if (text) renderInto(critiquesOfRow(boxes[tid].box, cid), text);
+        }
       }
     }
   });
