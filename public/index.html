@@ -130,6 +130,8 @@
   .skill-info svg { width: 14px; height: 14px; }
   .skill-info:hover { color: #777; }
   .skill-empty { font-size: 13px; color: #b6b6c0; padding: 4px 0 4px 17px; }
+  .help-body ul { margin: 4px 0 0; padding-left: 20px; }
+  .help-body li { font-size: 13.5px; line-height: 1.55; margin: 4px 0; color: #38383f; }
 
   /* Main */
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -344,6 +346,10 @@
       <button class="newchat" id="newchat">+ New chat</button>
       <button class="newchat tempbtn" id="tempchat">Temporary chat</button>
       <div class="conv-list" id="convList"></div>
+      <button class="settings-btn" id="helpBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Help
+      </button>
       <button class="settings-btn" id="settingsBtn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Settings
@@ -368,6 +374,58 @@
           <button id="send">Send</button>
         </div>
         <div class="hint">Enter to send &middot; Shift+Enter for a new line &middot; @model to ask just one &middot; drag files in to attach</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="helpModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Help</h2>
+        <button class="modal-close" id="helpClose">&times;</button>
+      </div>
+      <div class="modal-body help-body">
+        <div class="skill-section">
+          <div class="skill-provider">Asking</div>
+          <ul>
+            <li>One prompt goes to Claude, Gemini, and ChatGPT via their CLIs (your subscriptions, no API billing).</li>
+            <li><b>Enter</b> sends, <b>Shift+Enter</b> adds a newline.</li>
+            <li><b>@Claude / @Gemini / @Codex</b> (or @ChatGPT) sends to only those models. No mention = your default models (Settings).</li>
+            <li>Drag files anywhere (or click the paperclip) to attach text, code, images, or PDFs.</li>
+            <li>Each model sees the full conversation history, including turns answered by other models.</li>
+          </ul>
+        </div>
+        <div class="skill-section">
+          <div class="skill-provider">Per-response buttons (box header)</div>
+          <ul>
+            <li><b>⤢ Expand</b>: one box fills the row; click again to restore.</li>
+            <li><b>Copy</b>: copies the answer's markdown source.</li>
+            <li><b>! Criticize this</b>: the other models critique this answer; their takes appear under the box.</li>
+            <li><b>Humanize</b>: rewrites the answer to remove the AI tone (Korean text).</li>
+            <li><b>×</b>: deletes this answer (also removed from future context).</li>
+          </ul>
+        </div>
+        <div class="skill-section">
+          <div class="skill-provider">Per-turn</div>
+          <ul>
+            <li><b>Compare answers</b>: semantic synthesis: consensus, differences, unique points.</li>
+            <li><b>Criticize</b>: every model critiques every other model's answer.</li>
+            <li><b>×</b> on the prompt bubble (hover): deletes the whole turn.</li>
+            <li>Synthesis and critiques are saved with the chat.</li>
+          </ul>
+        </div>
+        <div class="skill-section">
+          <div class="skill-provider">Sidebar</div>
+          <ul>
+            <li><b>New chat</b> starts fresh; <b>Temporary chat</b> is never saved.</li>
+            <li>Hover a chat: pencil renames (or double-click the title), × deletes.</li>
+            <li><b>Skills</b>: enable/disable each CLI's skills (ⓘ shows descriptions).</li>
+            <li><b>Settings</b>: appearance (font, size), humanize-all toggle, default models, base model per service.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-primary" id="helpOk">Close</button>
       </div>
     </div>
   </div>
@@ -1465,6 +1523,10 @@ ta.addEventListener('keydown', (e) => {
 document.getElementById('send').addEventListener('click', send);
 document.getElementById('newchat').addEventListener('click', newChat);
 document.getElementById('tempchat').addEventListener('click', toggleTemporary);
+document.getElementById('helpBtn').addEventListener('click', () => document.getElementById('helpModal').classList.add('show'));
+document.getElementById('helpClose').addEventListener('click', () => document.getElementById('helpModal').classList.remove('show'));
+document.getElementById('helpOk').addEventListener('click', () => document.getElementById('helpModal').classList.remove('show'));
+document.getElementById('helpModal').addEventListener('click', (e) => { if (e.target.id === 'helpModal') e.target.classList.remove('show'); });
 document.getElementById('settingsBtn').addEventListener('click', openSettings);
 document.getElementById('skillsBtn').addEventListener('click', openSkills);
 document.getElementById('settingsClose').addEventListener('click', closeSettings);
