@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r \".tool_input.file_path // empty\"); case \"$f\" in *server.js|*public/index.html) echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"Prism docs check: this change may affect user-facing behavior. Review and update if needed: the Help modal + welcome card in public/index.html, README.md, and AGENTS.md (or CLAUDE.md).\\\"}}\";; esac",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
