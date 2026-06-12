@@ -4,6 +4,14 @@ One prompt refracted into three answers, side by side. A single web page fans yo
 **Claude**, **Gemini**, and **ChatGPT** by shelling out to each vendor's official CLI,
 so it runs on your existing **subscriptions** instead of per-token API billing.
 
+> **Built on CLIs, not APIs.** Prism does not call any model API and stores no API
+> keys. It spawns the official command-line tools (`claude`, `gemini`, `codex`),
+> which authenticate with your existing subscription logins (Claude Pro/Max,
+> Google account, ChatGPT). That means zero per-token cost, but also: the three
+> CLIs must be installed and logged in on the machine running Prism, and the
+> responders are coding *agents* that can use tools (web search, file reading),
+> not bare chat endpoints.
+
 ![Prism, one prompt answered by Claude, Gemini, and ChatGPT side by side](docs/screenshot.png)
 
 ```
