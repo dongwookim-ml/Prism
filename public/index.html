@@ -254,6 +254,7 @@
   .response-box.humanized-collapsed .humanized { margin: 0; padding: 16px 18px; border-top: none; }
   .font-select { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid #dcdce4; border-radius: 8px; background: #fff; cursor: pointer; }
   .model-input { font: inherit; font-size: 13px; padding: 5px 9px; border: 1px solid #dcdce4; border-radius: 8px; background: #fff; min-width: 230px; }
+  .ci-textarea { width: 100%; min-height: 90px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.5; padding: 8px 10px; border: 1px solid #dcdce4; border-radius: 8px; }
   mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
 
   /* Compare / synthesis */
@@ -424,7 +425,7 @@
             <li><b>New chat</b> starts fresh; <b>Temporary chat</b> is never saved.</li>
             <li>Hover a chat: pencil renames (or double-click the title), × deletes.</li>
             <li><b>Skills</b>: enable/disable each CLI's skills (ⓘ shows descriptions).</li>
-            <li><b>Settings</b>: appearance (font, size), humanize-all toggle, default models, base model per service.</li>
+            <li><b>Settings</b>: appearance (font, size), humanize-all toggle, default models, base model per service, and personalization (standing instructions sent with every prompt).</li>
           </ul>
         </div>
       </div>
@@ -578,6 +579,7 @@ let pendingFiles = [];      // [{ name, type, dataUrl, dataBase64 }]
 let temporary = false;      // ephemeral chat: responses not saved to history
 let defaultModels = [];     // models that answer when no @mention is given
 let serviceModels = {};     // per-service base model override (id -> model name)
+let customInstructions = '';// standing instructions prepended to every prompt
 let inflightTurn = null;    // DOM turn of the in-flight send (for turnIndex on save)
 
 const MENTION_ALIASES = { chatgpt: 'codex', gpt: 'codex' };
@@ -603,6 +605,7 @@ async function init() {
   const s = await fetch('/settings').then(r => r.json());
   defaultModels = s.defaultModels || MODELS.map((m) => m.id);
   serviceModels = s.models || {};
+  customInstructions = s.customInstructions || '';
   await loadSidebar();
   checkVersion();
   const cid = new URLSearchParams(location.search).get('conv');
@@ -1400,6 +1403,26 @@ function renderSettingsBody() {
   }
   body.appendChild(dsec);
 
+  // Personalization: standing instructions sent with every prompt.
+  const psec = document.createElement('div');
+  psec.className = 'skill-section';
+  const ph = document.createElement('div');
+  ph.className = 'skill-provider';
+  ph.textContent = 'Personalization';
+  psec.appendChild(ph);
+  const pnote = document.createElement('div');
+  pnote.className = 'skill-note';
+  pnote.style.marginLeft = '0';
+  pnote.textContent = 'Standing instructions sent to every model with every prompt (like custom instructions / CLAUDE.md).';
+  psec.appendChild(pnote);
+  const pta = document.createElement('textarea');
+  pta.id = 'customInstructions';
+  pta.className = 'ci-textarea';
+  pta.placeholder = 'e.g. I am an ML researcher. Answer concisely in Korean. Prefer PyTorch examples.';
+  pta.value = customInstructions;
+  psec.appendChild(pta);
+  body.appendChild(psec);
+
   const msec = document.createElement('div');
   msec.className = 'skill-section';
   const mh = document.createElement('div');
@@ -1525,7 +1548,8 @@ async function saveSettingsModal() {
       if (v) models[id] = v;
     });
     serviceModels = models;
-    payload = { defaultModels: dm, models };
+    customInstructions = document.getElementById('customInstructions')?.value.trim() || '';
+    payload = { defaultModels: dm, models, customInstructions };
   }
   await fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   btn.disabled = false; btn.textContent = 'Save';

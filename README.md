@@ -56,6 +56,8 @@ Node/Express
 **Settings & Skills**
 - Default models, base model per service (`opus`/`sonnet`/`haiku` or custom),
   font family/size.
+- Personalization: standing instructions (like custom instructions / CLAUDE.md)
+  sent to every model with every prompt.
 - Enable/disable each CLI's skills (Claude, Gemini, Codex) from the Skills
   panel.
 - Update banner when the GitHub repo is ahead of your running version; the

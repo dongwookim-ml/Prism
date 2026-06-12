@@ -305,7 +305,7 @@ app.get('/skills', async (_req, res) => {
 app.get('/settings', (_req, res) => {
   const s = loadSettings();
   const dm = (s.defaultModels || []).filter((id) => MODELS[id]);
-  res.json({ defaultModels: dm.length ? dm : Object.keys(MODELS), models: s.models || {} });
+  res.json({ defaultModels: dm.length ? dm : Object.keys(MODELS), models: s.models || {}, customInstructions: s.customInstructions || '' });
 });
 
 app.post('/settings', async (req, res) => {
@@ -314,6 +314,13 @@ app.post('/settings', async (req, res) => {
   const codex = Array.isArray(req.body?.codex) ? req.body.codex.map(String) : null;
   const defaultModels = Array.isArray(req.body?.defaultModels) ? req.body.defaultModels.filter((id) => MODELS[id]) : null;
   const serviceModels = (req.body?.models && typeof req.body.models === 'object') ? req.body.models : null;
+  const customInstructions = typeof req.body?.customInstructions === 'string' ? req.body.customInstructions : null;
+
+  if (customInstructions !== null) {
+    const settings = loadSettings();
+    settings.customInstructions = customInstructions.trim().slice(0, 8000);
+    saveSettings(settings);
+  }
 
   if (defaultModels) {
     const settings = loadSettings();
@@ -530,6 +537,10 @@ app.post('/ask', (req, res) => {
   // Per-service base model override (empty => CLI default).
   const serviceModels = loadSettings().models || {};
 
+  // Standing user instructions (personalization), prepended to every prompt.
+  const ci = (loadSettings().customInstructions || '').trim();
+  const ciPreamble = ci ? `Standing instructions from the user (apply to every reply):\n${ci}\n\n` : '';
+
   // Stream newline-delimited JSON events back to the browser as they happen.
   res.set({ 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
@@ -556,7 +567,7 @@ app.post('/ask', (req, res) => {
 
   for (const id of ids) {
     const cfg = MODELS[id];
-    const child = spawn(cfg.cmd, cfg.args(withHistory(priorTurns, id, basePrompt), {
+    const child = spawn(cfg.cmd, cfg.args(ciPreamble + withHistory(priorTurns, id, basePrompt), {
       images,
       attachments,
       disabledSkills,
