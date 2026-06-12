@@ -406,7 +406,7 @@ app.post('/criticize', (req, res) => {
     const subjects = (target ? [target] : answered.filter((o) => o !== id))
       .map((o) => `### ${MODELS[o].label.split(' ')[0]}\n${clean(responses[o])}`).join('\n\n');
     const what = target ? `that assistant's answer` : `the other assistants' answers`;
-    const critPrompt = `Several AI assistants answered the same question.\n\nQuestion:\n${prompt || '(see answers)'}\n\nYour answer:\n${clean(responses[id])}\n\n${target ? 'Another assistant answered' : 'The other assistants answered'}:\n\n${subjects}\n\nCritique ${what}: factual errors, questionable claims, omissions, and where it is weaker or stronger than yours. Be specific and fair; concede good points. Concise markdown, same language as the answers. Do not restate your own answer.`;
+    const critPrompt = `Several AI assistants answered the same question.\n\nQuestion:\n${prompt || '(see answers)'}\n\nYour answer:\n${clean(responses[id])}\n\n${target ? 'Another assistant answered' : 'The other assistants answered'}:\n\n${subjects}\n\nCritique ${what}: factual errors, questionable claims, omissions, and where it is weaker or stronger than yours. Be specific and fair; concede good points. Concise markdown, same language as the answers. Do not restate your own answer. Do not use markdown headings (#); when addressing multiple assistants, start each with a bold name line like **Gemini:**.`;
     const child = spawn(cfg.cmd, cfg.args(critPrompt, {}), { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
     children.push(child);
     let out = '', err = '';
