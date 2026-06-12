@@ -169,8 +169,10 @@ const MODELS = {
     // --skip-trust: scratch dir isn't a "trusted" workspace. @name pulls each
     // attached file in as real (multimodal) input, which it needs to view images.
     args: (p, ctx) => {
+      // --yolo: auto-approve tool calls (web fetch etc.); headless mode can't
+      // answer approval prompts, so without it Gemini hangs on tool use.
       const refs = (ctx.attachments || []).map((n) => '@' + n).join(' ');
-      const a = ['--skip-trust'];
+      const a = ['--skip-trust', '--yolo'];
       if (ctx.model) a.push('-m', ctx.model);
       a.push('-p', refs ? `${p}\n\n${refs}` : p);
       return a;
