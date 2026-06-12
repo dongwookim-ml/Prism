@@ -132,6 +132,9 @@
   .skill-empty { font-size: 13px; color: #b6b6c0; padding: 4px 0 4px 17px; }
   .help-body ul { margin: 4px 0 0; padding-left: 20px; }
   .help-body li { font-size: 13.5px; line-height: 1.55; margin: 4px 0; color: #38383f; }
+  .welcome { display: none; max-width: 760px; margin: 24px auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 24px 18px; box-shadow: 0 1px 3px rgba(20,20,40,0.04), 0 6px 20px rgba(20,20,40,0.05); }
+  .welcome h2 { font-size: 17px; margin: 16px 0 0; }
+  .welcome .tagline { font-size: 13px; color: var(--muted); margin: 2px 0 4px; }
 
   /* Main */
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -363,7 +366,7 @@
     <div class="main">
       <div class="temp-banner" id="tempBanner">Temporary chat, not saved to history.</div>
       <div class="update-banner" id="updateBanner"></div>
-      <div class="conversation" id="conv"><div class="stream" id="stream"></div></div>
+      <div class="conversation" id="conv"><div class="welcome" id="welcome"></div><div class="stream" id="stream"></div></div>
       <div class="composer">
         <div class="attachments" id="attachments"></div>
         <div class="composer-inner">
@@ -554,6 +557,16 @@ const humanizeDefaultOn = () => localStorage.getItem('prism.humanizeDefault') ==
 function applyHumanizeDefault() { document.body.classList.toggle('humanize-auto', humanizeDefaultOn()); }
 applyHumanizeDefault();
 
+// Welcome card: the help content shown inline whenever the chat area is empty.
+function updateWelcome() {
+  const w = document.getElementById('welcome');
+  if (!w.innerHTML) {
+    w.innerHTML = '<h2>Welcome to Prism</h2><div class="tagline">one prompt, three perspectives</div>'
+      + '<div class="help-body">' + document.querySelector('#helpModal .help-body').innerHTML + '</div>';
+  }
+  w.style.display = document.getElementById('stream').children.length ? 'none' : 'block';
+}
+
 const conv = document.getElementById('conv');
 const stream = document.getElementById('stream');
 const convList = document.getElementById('convList');
@@ -593,6 +606,7 @@ async function init() {
   checkVersion();
   const cid = new URLSearchParams(location.search).get('conv');
   if (cid) openConversation(cid);
+  updateWelcome();
 }
 
 // Banner if origin/main is ahead of the running commit.
@@ -707,6 +721,7 @@ function buildTurn(prompt, attachments, modelIds) {
   compareBar.append(compareBtn, criticizeBtn);
   if (shown.length >= 2) turn.appendChild(compareBar);
   stream.appendChild(turn);
+  updateWelcome();
   return { boxes, turn, compareBtn, criticizeBtn };
 }
 
@@ -1189,6 +1204,7 @@ function markTemporary(on) {
 function resetView() {
   currentId = null;
   stream.innerHTML = '';
+  updateWelcome();
   pendingFiles = [];
   renderChips();
   loadSidebar();
@@ -1254,7 +1270,7 @@ async function deleteTurn(turnEl) {
 
 async function deleteConversation(id) {
   await fetch('/conversations/' + id, { method: 'DELETE' });
-  if (id === currentId) { currentId = null; stream.innerHTML = ''; }
+  if (id === currentId) { currentId = null; stream.innerHTML = ''; updateWelcome(); }
   loadSidebar();
 }
 
