@@ -225,6 +225,10 @@
   .expand-btn { flex: none; border: none; background: none; color: #9a9aa5; cursor: pointer; padding: 3px; border-radius: 6px; display: flex; }
   .expand-btn:hover { background: #f1f1f5; color: #555; }
   .expand-btn svg { width: 15px; height: 15px; }
+  .copy-btn { flex: none; border: none; background: none; color: #9a9aa5; cursor: pointer; padding: 3px; border-radius: 6px; display: flex; }
+  .copy-btn:hover { background: #f1f1f5; color: #555; }
+  .copy-btn svg { width: 15px; height: 15px; }
+  .copy-btn.copied { color: var(--codex); }
   .responses.has-expanded .response-box:not(.expanded) { display: none; }
   .rbox-del { flex: none; border: none; background: none; color: #c2c2cc; cursor: pointer; font-size: 17px; line-height: 1; padding: 0 4px; }
   .rbox-del:hover { color: #d9534f; }
@@ -458,6 +462,15 @@ function renderInto(el, text) {
 const FILE_ICON = '<svg class="fileicon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
 const MAX_FILE = 25 * 1024 * 1024; // 25 MB per file
 const LOADER = '<div class="loader"><span></span><span></span><span></span></div>';
+const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const COPY_OK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+async function copyResponse(box, btn) {
+  const md = box._md ?? box.querySelector('.assistant')?.textContent ?? '';
+  try { await navigator.clipboard.writeText(md); } catch { return; }
+  btn.innerHTML = COPY_OK_SVG;
+  btn.classList.add('copied');
+  setTimeout(() => { btn.innerHTML = COPY_SVG; btn.classList.remove('copied'); }, 1200);
+}
 
 const FONTS = {
   system: '-apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif',
@@ -595,6 +608,12 @@ function buildTurn(prompt, attachments, modelIds) {
     exp.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
     exp.onclick = () => toggleExpand(box);
     box.querySelector('.rbox-head').appendChild(exp);
+    const cp = document.createElement('button');
+    cp.className = 'copy-btn';
+    cp.title = 'Copy markdown';
+    cp.innerHTML = COPY_SVG;
+    cp.onclick = () => copyResponse(box, cp);
+    box.querySelector('.rbox-head').appendChild(cp);
     const btn = document.createElement('button');
     btn.className = 'humanize-btn';
     btn.textContent = 'Humanize';
@@ -639,6 +658,7 @@ function scheduleRender(slot) {
     slot.pending = false;
     const atBottom = conv.scrollHeight - conv.scrollTop - conv.clientHeight < 100;
     renderInto(slot.el, slot.raw);
+    if (slot.box) slot.box._md = slot.raw;
     if (atBottom) conv.scrollTop = conv.scrollHeight;
   });
 }
@@ -934,6 +954,7 @@ async function openConversation(id) {
     for (const id of shownIds) {
       if (!boxes[id]) continue;
       renderInto(boxes[id].el, turn.responses[id]);
+      boxes[id].box._md = turn.responses[id];
       setStatus(boxes[id].status, 'done', false);
       const text = turn.responses[id];
       boxes[id].btn.onclick = () => humanize(boxes[id], () => text);
