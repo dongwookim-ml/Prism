@@ -378,6 +378,64 @@ app.post('/humanize', (req, res) => {
   res.on('close', () => { if (!res.writableEnded) child.kill('SIGTERM'); });
 });
 
+// Each model critiques the other models' answers (their answers as context).
+app.post('/criticize', (req, res) => {
+  const prompt = (req.body?.prompt || '').toString();
+  const responses = (req.body?.responses && typeof req.body.responses === 'object') ? req.body.responses : {};
+  const conversationId = req.body?.conversationId;
+  const turnIndex = Number.isInteger(req.body?.turnIndex) ? req.body.turnIndex : null;
+  const clean = (s) => String(s || '').replace(//g, '\n').trim();
+  const ids = Object.keys(responses).filter((id) => MODELS[id] && clean(responses[id]));
+  if (ids.length < 2) return res.status(400).json({ error: 'need at least two responses' });
+
+  res.set({ 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
+  res.flushHeaders();
+  const emit = (obj) => res.write(JSON.stringify(obj) + '\n');
+
+  const critiques = {};
+  let remaining = ids.length;
+  const children = [];
+  for (const id of ids) {
+    const cfg = MODELS[id];
+    const others = ids.filter((o) => o !== id)
+      .map((o) => `### ${MODELS[o].label.split(' ')[0]}\n${clean(responses[o])}`).join('\n\n');
+    const critPrompt = `Several AI assistants answered the same question.\n\nQuestion:\n${prompt || '(see answers)'}\n\nYour answer:\n${clean(responses[id])}\n\nThe other assistants answered:\n\n${others}\n\nCritique the other assistants' answers: factual errors, questionable claims, omissions, and where they are weaker or stronger than yours. Be specific and fair; concede good points. Concise markdown, same language as the answers. Do not restate your own answer.`;
+    const child = spawn(cfg.cmd, cfg.args(critPrompt, {}), { cwd: SCRATCH, stdio: ['ignore', 'pipe', 'pipe'] });
+    children.push(child);
+    let out = '', err = '';
+    critiques[id] = '';
+    child.stdout.on('data', (d) => {
+      out += d.toString();
+      let nl;
+      while ((nl = out.indexOf('\n')) >= 0) {
+        const line = out.slice(0, nl); out = out.slice(nl + 1);
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (!cfg.parse) { critiques[id] += line + '\n'; emit({ type: 'chunk', model: id, text: line + '\n' }); continue; }
+        let parsed;
+        try { parsed = JSON.parse(trimmed); } catch { continue; }
+        const text = cfg.parse(parsed);
+        if (text) { critiques[id] += text; emit({ type: 'chunk', model: id, text }); }
+      }
+    });
+    child.stderr.on('data', (d) => { err += d.toString(); });
+    child.on('error', (e) => emit({ type: 'chunk', model: id, text: `[cannot start "${cfg.cmd}": ${e.message}]` }));
+    child.on('close', (code) => {
+      if (!cfg.parse && out.trim()) { critiques[id] += out; emit({ type: 'chunk', model: id, text: out }); }
+      if (code && code !== 0) emit({ type: 'chunk', model: id, text: `\n[${id} exited with code ${code}]${err.trim() ? '\n' + err.trim() : ''}` });
+      emit({ type: 'done', model: id });
+      if (--remaining === 0) {
+        if (conversationId && turnIndex != null) {
+          const c = loadConv(conversationId);
+          if (c && c.turns[turnIndex]) { c.turns[turnIndex].critiques = critiques; saveConv(c); }
+        }
+        res.end();
+      }
+    });
+  }
+  res.on('close', () => { if (!res.writableEnded) children.forEach((c) => c.kill('SIGTERM')); });
+});
+
 // Semantic synthesis of the three answers (Consensus / Differences / Unique).
 app.post('/compare', (req, res) => {
   const prompt = (req.body?.prompt || '').toString();
