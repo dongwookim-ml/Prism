@@ -596,7 +596,7 @@ function parseMention(text) {
     const id = mentionToId(word);
     if (id) { if (!ids.includes(id)) ids.push(id); return ''; }
     return full;
-  }).replace(/\s{2,}/g, ' ').trim();
+  }).replace(/[ \t]{2,}/g, ' ').trim(); // collapse only spaces/tabs; keep newlines
   return { ids, cleaned };
 }
 
