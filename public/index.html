@@ -236,6 +236,12 @@
   .copy-btn:hover { background: #f1f1f5; color: #555; }
   .copy-btn svg { width: 15px; height: 15px; }
   .copy-btn.copied { color: var(--codex); }
+  /* Linear-mode "choose" (pick this answer for the next prompt). */
+  .choose-btn { flex: none; border: none; background: none; color: #c2c2cc; cursor: pointer; padding: 3px; border-radius: 6px; display: flex; }
+  .choose-btn svg { width: 16px; height: 16px; }
+  .choose-btn:hover { background: #f1f1f5; color: #777; }
+  .response-box.chosen { box-shadow: 0 0 0 2px var(--sel), 0 6px 20px rgba(20,20,40,0.06); }
+  .response-box.chosen .choose-btn { color: var(--sel); }
   .responses.has-expanded .response-box:not(.expanded) { display: none; }
 
   /* ===== tree-of-thoughts (node graph) ===== */
@@ -403,6 +409,7 @@
         <div class="tag">one prompt, three perspectives</div>
       </div>
       <button class="newchat" id="newchat">+ New chat</button>
+      <button class="newchat" id="newtreechat">+ New tree chat</button>
       <button class="newchat tempbtn" id="tempchat">Temporary chat</button>
       <div class="conv-list" id="convList"></div>
       <button class="settings-btn" id="helpBtn">
@@ -460,7 +467,23 @@
           </ul>
         </div>
         <div class="skill-section">
-          <div class="skill-provider">Tree of thoughts</div>
+          <div class="skill-provider">Two modes (pick per chat)</div>
+          <ul>
+            <li><b>+ New chat</b> starts a <b>Standard</b> chat: the classic three side-by-side panes, full answers, one row per prompt.</li>
+            <li><b>+ New tree chat</b> starts a <b>Tree of thoughts</b> chat: a branching node graph (below).</li>
+            <li>A chat keeps the mode it was created in; you can't switch a single chat between modes.</li>
+          </ul>
+        </div>
+        <div class="skill-section">
+          <div class="skill-provider">Standard mode</div>
+          <ul>
+            <li>Each prompt's three answers show full, side by side; ask again to continue.</li>
+            <li><b>✓</b> on an answer makes the next prompt build on that one answer (all models continue from it); click again to clear.</li>
+            <li>Per answer: copy, <b>!</b> criticize (others critique it), Humanize, <b>×</b> delete. <b>×</b> on the prompt deletes the whole turn.</li>
+          </ul>
+        </div>
+        <div class="skill-section">
+          <div class="skill-provider">Tree of thoughts mode</div>
           <ul>
             <li>The chat is drawn as a <b>tree</b>: lines connect each answer to the answer it grew from, so you see exactly which response each branch came from.</li>
             <li>Each answer is a compact <b>card</b> (tinted) showing a one-sentence summary the model wrote.</li>
@@ -484,7 +507,7 @@
         <div class="skill-section">
           <div class="skill-provider">Sidebar</div>
           <ul>
-            <li><b>New chat</b> starts fresh; <b>Temporary chat</b> is never saved.</li>
+            <li><b>New chat</b> (standard) / <b>New tree chat</b> start a fresh chat in that mode; <b>Temporary chat</b> is never saved.</li>
             <li>Hover a chat: pencil renames (or double-click the title), × deletes.</li>
             <li><b>Skills</b>: enable/disable each CLI's skills (ⓘ shows descriptions).</li>
             <li><b>Settings</b>: appearance (font, size), humanize-all toggle, default models, base model per service, and personalization (standing instructions sent with every prompt).</li>
@@ -698,13 +721,13 @@ async function checkVersion() {
 // node per answering model). Selecting a node and prompting branches it into a
 // child group. The path from a node to its root is the context its children
 // build on. Cards show a one-sentence summary; "Expand all" shows full answers.
-let convModel = { id: null, groups: [], selected: null }; // selected: {kind:'node'|'group', id} | null
+let convModel = { id: null, mode: 'linear', groups: [], selected: null }; // mode: 'linear'|'tree'; selected: {kind,id}|null
 let expandAll = false;
 let cardSlots = {};        // nodeId -> live streaming slot {raw,done,model,nodeId,el,box}
 let activeByModel = {};    // model -> slot, for the in-flight send
 let currentGroup = null;   // the group being streamed right now
 
-function resetModel() { convModel = { id: null, groups: [], selected: null }; expandAll = false; cardSlots = {}; }
+function resetModel(mode = 'linear') { convModel = { id: null, mode, groups: [], selected: null }; expandAll = false; cardSlots = {}; }
 const findNodeC = (id) => { for (const g of convModel.groups) for (const n of g.nodes) if (n.id === id) return { group: g, node: n }; return {}; };
 const groupOf = (id) => convModel.groups.find((g) => g.id === id);
 const childNodesOf = (nodeId) => convModel.groups.flatMap((g) => g.nodes).filter((n) => n.parentId === nodeId);
@@ -727,7 +750,7 @@ const CRIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 async function setSelected(sel) {
   convModel.selected = sel;
   clearComposerNotice();
-  renderTree();
+  render();
   updateSelectionBar();
   if (convModel.id) {
     try { await fetch(`/conversations/${convModel.id}/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sel || {}) }); } catch {}
@@ -986,17 +1009,93 @@ function renderTree() {
   updateWelcome();
 }
 
-// Re-render still-streaming cards after a structural renderTree (DOM rebuilt).
+// Re-render still-streaming cards after a structural re-render (DOM rebuilt).
 function rebindSlots() {
   for (const id in cardSlots) {
     const slot = cardSlots[id];
     if (slot.done) continue;
-    const box = stream.querySelector(`.tnode[data-node="${CSS.escape(id)}"]`);
+    const box = stream.querySelector(`[data-node="${CSS.escape(id)}"]`);
     if (!box) continue;
     slot.box = box; slot.el = box.querySelector('.assistant');
     setStatus(box.querySelector('.status'), 'thinking', true);
     if (slot.raw) renderInto(slot.el, slot.raw, false); else slot.el.innerHTML = LOADER;
   }
+}
+
+// Render the current conversation in its mode: a tree node graph, or the classic
+// linear stack of three-pane rows.
+function render() { convModel.mode === 'tree' ? renderTree() : renderLinear(); }
+
+const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="8.5 12.5 11 15 16 9"/></svg>';
+
+// ===== linear (standard) mode: classic three-pane rows over the same data =====
+// A linear chat never branches, so its groups are a simple top-to-bottom sequence.
+function renderLinear() {
+  stream.innerHTML = '';
+  document.getElementById('treeToolbar').classList.remove('show');
+  if (!convModel.groups.length) { updateWelcome(); return; }
+  for (const g of convModel.groups) stream.appendChild(linearTurnEl(g));
+  rebindSlots();
+  if (window.MathJax?.typesetPromise) requestAnimationFrame(() => { try { if (MathJax.typesetClear) MathJax.typesetClear([stream]); MathJax.typesetPromise([stream]).catch(() => {}); } catch {} });
+  updateWelcome();
+}
+
+function linearTurnEl(group) {
+  const turn = document.createElement('div');
+  turn.className = 'turn';
+  turn.dataset.groupId = group.id;
+  turn._prompt = group.prompt;
+  const user = document.createElement('div');
+  user.className = 'msg user';
+  if (group.attachments && group.attachments.length) {
+    const atts = document.createElement('div'); atts.className = 'atts';
+    for (const name of group.attachments) { const a = document.createElement('span'); a.className = 'att'; a.textContent = name; atts.appendChild(a); }
+    user.appendChild(atts);
+  }
+  if (group.prompt) { const p = document.createElement('div'); p.textContent = group.prompt; user.appendChild(p); }
+  const tdel = document.createElement('button');
+  tdel.className = 'turn-del'; tdel.title = 'Delete this prompt and its answers'; tdel.textContent = '×';
+  tdel.onclick = () => deleteGroup(group.id);
+  user.appendChild(tdel);
+  const responses = document.createElement('div'); responses.className = 'responses';
+  turn.append(user, responses);
+  for (const n of group.nodes) responses.appendChild(linearCardEl(n, group));
+  if (group.nodes.length >= 2) {
+    const bar = document.createElement('div'); bar.className = 'compare-bar';
+    const cmp = document.createElement('button'); cmp.className = 'compare-btn'; cmp.textContent = 'Compare answers'; cmp.onclick = () => openSynthesisModal(group);
+    const crt = document.createElement('button'); crt.className = 'compare-btn'; crt.textContent = 'Criticize'; crt.onclick = () => openCritiqueModal(group, null);
+    bar.append(cmp, crt);
+    turn.appendChild(bar);
+  }
+  return turn;
+}
+
+function linearCardEl(node, group) {
+  const m = MODELS.find((x) => x.id === node.model) || { id: node.model, label: node.model };
+  const slot = cardSlots[node.id];
+  const streaming = slot && !slot.done;
+  const box = document.createElement('div');
+  box.className = 'response-box' + (isNodeSel(node.id) ? ' chosen' : '');
+  box.dataset.id = node.model;
+  box.dataset.node = node.id;
+  box.innerHTML = `<div class="rbox-head"><span class="dot"></span><span class="name">${m.label}</span><span class="status"></span></div>`;
+  const head = box.querySelector('.rbox-head');
+  const stop = (fn) => (e) => { e.stopPropagation(); fn(e); };
+  const ch = document.createElement('button');
+  ch.className = 'choose-btn'; ch.title = 'Build the next prompt on this answer (all models continue from it)'; ch.innerHTML = CHECK_SVG;
+  ch.onclick = stop(() => setSelected(isNodeSel(node.id) ? null : { kind: 'node', id: node.id }));
+  head.appendChild(ch);
+  const cp = document.createElement('button'); cp.className = 'copy-btn'; cp.title = 'Copy markdown'; cp.innerHTML = COPY_SVG; cp.onclick = stop(() => copyResponse(box, cp)); head.appendChild(cp);
+  const crit = document.createElement('button'); crit.className = 'copy-btn'; crit.title = 'Have the other answers criticize this one'; crit.innerHTML = CRIT_SVG; crit.onclick = stop(() => openCritiqueModal(group, node.model)); head.appendChild(crit);
+  const hum = document.createElement('button'); hum.className = 'humanize-btn'; hum.textContent = 'Humanize'; head.appendChild(hum);
+  const del = document.createElement('button'); del.className = 'rbox-del'; del.title = 'Delete this answer'; del.textContent = '×'; del.onclick = stop(() => deleteNode(node.id)); head.appendChild(del);
+  const body = document.createElement('div'); body.className = 'assistant'; box.appendChild(body); box._md = node.text;
+  hum.onclick = stop(() => humanize({ box, el: body, btn: hum }, () => node.text));
+  if (streaming) { setStatus(head.querySelector('.status'), 'thinking', true); if (slot.raw) renderInto(body, slot.raw, false); else body.innerHTML = LOADER; }
+  else { setStatus(head.querySelector('.status'), node.text ? 'done' : '', false); renderInto(body, node.text || '', false); }
+  if (group.critiques && group.critiques[node.model]) renderInto(critiqueEl(box), group.critiques[node.model]);
+  if (group.critiquesOf && group.critiquesOf[node.model]) for (const [cid, t] of Object.entries(group.critiquesOf[node.model])) if (t) renderInto(critiquesOfRow(box, cid), t);
+  return box;
 }
 
 // Compare (synthesis) and Criticize results are group-wide, so they open in a
@@ -1079,7 +1178,8 @@ function updateSelectionBar() {
   let label = '', summary = '';
   if (sel && sel.kind === 'node') {
     const { node } = findNodeC(sel.id);
-    if (node) { label = `Branching from <b>${MODEL_SHORT[node.model] || node.model}</b>:`; summary = node.summary || node.text || ''; }
+    const verb = convModel.mode === 'tree' ? 'Branching from' : 'Next prompt builds on';
+    if (node) { label = `${verb} <b>${MODEL_SHORT[node.model] || node.model}</b>:`; summary = node.summary || node.text || ''; }
   } else if (sel && sel.kind === 'group') {
     const g = groupOf(sel.id);
     if (g) { label = 'Continuing each model from:'; summary = g.prompt || '[prompt]'; }
@@ -1217,13 +1317,13 @@ async function send() {
     cardSlots[n.id] = slot;
     activeByModel[n.model] = slot;
   }
-  renderTree();
+  render();
   conv.scrollTop = conv.scrollHeight;
 
   const res = await fetch('/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, conversationId: convModel.id, nodeParents, contexts, files, models: targetIds, temporary }),
+    body: JSON.stringify({ prompt, conversationId: convModel.id, nodeParents, contexts, files, models: targetIds, temporary, mode: convModel.mode }),
   });
 
   const reader = res.body.getReader();
@@ -1256,7 +1356,7 @@ function handle(evt) {
         if (slot) { slot.nodeId = newId; cardSlots[newId] = slot; activeByModel[n.model] = slot; }
       }
       currentGroup.id = evt.groupId;
-      renderTree(); // rebindSlots re-attaches the still-streaming cards
+      render(); // rebindSlots re-attaches the still-streaming cards
     }
     loadSidebar();
     return;
@@ -1281,11 +1381,8 @@ function handle(evt) {
 // Switch a finished card from its streaming text to its summary (or full answer
 // if expanded), in place, without a full re-render.
 function settleCard(slot) {
-  // A compact card has a fixed size, so once one answer lands the parent's edge
-  // endpoints don't move; a full re-layout would still be needed if a sibling's
-  // expanded height changed, but for the common compact case settle in place.
-  renderTree();
-  return stream.querySelector(`.tnode[data-node="${CSS.escape(slot.nodeId)}"]`);
+  render();
+  return stream.querySelector(`[data-node="${CSS.escape(slot.nodeId)}"]`);
 }
 
 async function loadSidebar() {
@@ -1501,10 +1598,11 @@ function renderSynthesis(turn, text) {
 async function openConversation(id) {
   const c = await fetch('/conversations/' + id).then(r => r.json());
   markTemporary(false);
-  resetModel();
-  convModel = { id: c.id, groups: c.groups || [], selected: c.selected || null };
+  const mode = c.mode === 'tree' ? 'tree' : 'linear';
+  resetModel(mode);
+  convModel = { id: c.id, mode, groups: c.groups || [], selected: c.selected || null };
   currentId = c.id;
-  renderTree();
+  render();
   updateSelectionBar();
   conv.scrollTop = conv.scrollHeight;
   loadSidebar();
@@ -1516,10 +1614,10 @@ function markTemporary(on) {
   document.getElementById('tempchat').classList.toggle('active', on);
 }
 
-function resetView() {
+function resetView(mode = 'linear') {
   currentId = null;
-  resetModel();
-  renderTree();
+  resetModel(mode);
+  render();
   updateSelectionBar();
   pendingFiles = [];
   renderChips();
@@ -1527,14 +1625,14 @@ function resetView() {
   document.getElementById('prompt').focus();
 }
 
-function newChat() {
+function newChat(mode = 'linear') {
   markTemporary(false);
-  resetView();
+  resetView(mode);
 }
 
 function toggleTemporary() {
   markTemporary(!temporary);
-  resetView();
+  resetView('linear');
 }
 
 // Inline-rename a conversation title (double-click or pencil button).
@@ -1583,14 +1681,27 @@ async function deleteGroup(groupId) {
   convModel.groups = convModel.groups.filter((g) => !removed.has(g.id));
   const sel = convModel.selected;
   if (sel && !(sel.kind === 'group' ? groupOf(sel.id) : findNodeC(sel.id).node)) convModel.selected = null;
-  renderTree();
+  render();
   updateSelectionBar();
   loadSidebar();
 }
 
+// Delete one answer node (linear per-response delete); reparent its children.
+async function deleteNode(nodeId) {
+  if (convModel.id) await fetch(`/conversations/${convModel.id}/nodes/${nodeId}`, { method: 'DELETE' });
+  const { node } = findNodeC(nodeId);
+  const pid = node ? node.parentId : null;
+  for (const g of convModel.groups) for (const n of g.nodes) if (n.parentId === nodeId) n.parentId = pid;
+  for (const g of convModel.groups) g.nodes = g.nodes.filter((n) => n.id !== nodeId);
+  convModel.groups = convModel.groups.filter((g) => g.nodes.length);
+  if (convModel.selected && convModel.selected.kind === 'node' && convModel.selected.id === nodeId) convModel.selected = null;
+  render();
+  updateSelectionBar();
+}
+
 async function deleteConversation(id) {
   await fetch('/conversations/' + id, { method: 'DELETE' });
-  if (id === currentId) { currentId = null; resetModel(); renderTree(); updateSelectionBar(); }
+  if (id === currentId) { currentId = null; resetModel(convModel.mode); render(); updateSelectionBar(); }
   loadSidebar();
 }
 
@@ -1879,7 +1990,8 @@ ta.addEventListener('keydown', (e) => {
 });
 document.getElementById('send').addEventListener('click', send);
 document.getElementById('expandAllToggle').addEventListener('change', (e) => { expandAll = e.target.checked; renderTree(); });
-document.getElementById('newchat').addEventListener('click', newChat);
+document.getElementById('newchat').addEventListener('click', () => newChat('linear'));
+document.getElementById('newtreechat').addEventListener('click', () => newChat('tree'));
 document.getElementById('tempchat').addEventListener('click', toggleTemporary);
 document.getElementById('helpBtn').addEventListener('click', () => document.getElementById('helpModal').classList.add('show'));
 document.getElementById('helpClose').addEventListener('click', () => document.getElementById('helpModal').classList.remove('show'));

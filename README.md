@@ -32,7 +32,13 @@ Node/Express
 - Drag & drop (or paperclip) attaches text, code, images, and PDFs.
 - Markdown and LaTeX (MathJax) rendering; Enter sends, Shift+Enter newlines.
 
-**Tree of thoughts**
+**Two modes (chosen per chat)**
+- **+ New chat** -> *Standard*: the classic three side-by-side panes, full
+  answers, one row per prompt. `✓` on an answer makes the next prompt build on it.
+- **+ New tree chat** -> *Tree of thoughts*: a branching node graph (below).
+- A chat keeps the mode it was created in; a single chat is never both.
+
+**Tree of thoughts** (tree-mode chats)
 - The chat is drawn as a **node graph**: a dark prompt node is connected by lines
   to its answer cards, and a selected answer is connected to the follow-up it
   spawned. The edges show which answer each branch grew from. Node positions are

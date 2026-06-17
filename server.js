@@ -79,6 +79,7 @@ function normalizeConv(conv) {
       delete g.parentNodeId;
     }
     conv.version = 3; conv.selected = selected;
+    conv.mode = conv.mode === 'linear' ? 'linear' : 'tree'; // group-based chats default to tree
     return conv;
   }
 
@@ -103,7 +104,7 @@ function normalizeConv(conv) {
   });
   return {
     id: conv.id, title: conv.title, createdAt: conv.createdAt, updatedAt: conv.updatedAt,
-    version: 3, selected, groups,
+    version: 3, mode: 'linear', selected, groups, // legacy turn-based chats were authored in linear mode
   };
 }
 
@@ -338,6 +339,23 @@ app.delete('/conversations/:id/groups/:groupId', (req, res) => {
     const ok = c.selected.kind === 'group' ? findGroup(c, c.selected.id) : findNode(c, c.selected.id).node;
     if (!ok) c.selected = null;
   }
+  c.updatedAt = new Date().toISOString();
+  saveConv(c);
+  res.json({ ok: true });
+});
+
+// Delete a single answer node (e.g. one model's response in a linear turn).
+// Its children are reparented to its parent so the lineage stays connected; an
+// emptied group is removed.
+app.delete('/conversations/:id/nodes/:nodeId', (req, res) => {
+  const c = normalizeConv(loadConv(req.params.id));
+  if (!c) return res.status(404).json({ error: 'not found' });
+  const { group, node } = findNode(c, req.params.nodeId);
+  if (!node) return res.status(404).json({ error: 'not found' });
+  for (const g of c.groups) for (const n of g.nodes) if (n.parentId === node.id) n.parentId = node.parentId || null;
+  group.nodes = group.nodes.filter((n) => n.id !== node.id);
+  if (!group.nodes.length) c.groups = c.groups.filter((g) => g !== group);
+  if (c.selected && c.selected.kind === 'node' && c.selected.id === node.id) c.selected = null;
   c.updatedAt = new Date().toISOString();
   saveConv(c);
   res.json({ ok: true });
@@ -594,6 +612,7 @@ app.post('/ask', (req, res) => {
   const nodeParents = (req.body?.nodeParents && typeof req.body.nodeParents === 'object') ? req.body.nodeParents : {};
   const contexts = (req.body?.contexts && typeof req.body.contexts === 'object') ? req.body.contexts : {};
   const temporary = !!req.body?.temporary; // ephemeral chat: never saved to disk
+  const mode = req.body?.mode === 'tree' ? 'tree' : 'linear'; // per-chat mode, set when the chat is created
   const files = Array.isArray(req.body?.files) ? req.body.files : [];
   if (!prompt && !files.length) return res.status(400).json({ error: 'empty prompt' });
 
@@ -660,7 +679,7 @@ app.post('/ask', (req, res) => {
     conv = (conversationId && normalizeConv(loadConv(conversationId))) || null;
     if (!conv) {
       const title = basePrompt.split('\n')[0].slice(0, 60) || (attachments.length ? attachments.join(', ').slice(0, 60) : 'Untitled');
-      conv = { id: crypto.randomUUID(), title, createdAt: now, version: 3, selected: null, groups: [] };
+      conv = { id: crypto.randomUUID(), title, createdAt: now, version: 3, mode, selected: null, groups: [] };
     }
     group = { id: groupId, prompt, attachments, ts: now,
       nodes: ids.map((id) => ({ id: nodeIds[id], model: id, text: '', summary: '', ts: now, parentId: nodeParents[id] || null })) };
