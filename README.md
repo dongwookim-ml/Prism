@@ -30,20 +30,40 @@ Node/Express
 - `@Claude` / `@Gemini` / `@Codex` (or `@ChatGPT`) targets only those models; no
   mention uses your default models (Settings).
 - Drag & drop (or paperclip) attaches text, code, images, and PDFs.
-- Every model sees the full conversation history, including turns answered by
-  other models, so follow-ups work across panes.
 - Markdown and LaTeX (MathJax) rendering; Enter sends, Shift+Enter newlines.
 
-**Comparing the models**
-- **Compare answers**: a semantic synthesis of the turn: consensus, differences
-  (who says what), and unique points.
-- **Criticize**: every model critiques the other models' answers; or click the
-  `!` icon on one box to have the others critique just that answer.
+**Tree of thoughts**
+- The chat is drawn as a **node graph**: a dark prompt node is connected by lines
+  to its answer cards, and a selected answer is connected to the follow-up it
+  spawned. The edges show which answer each branch grew from. Node positions are
+  laid out automatically; children sit under their parent.
+- Each answer is a compact **card** (tinted) with a one-sentence summary the model
+  writes itself.
+- **Click an answer** to open it (full text, white) and select it; click again to
+  close it. With an answer selected, the next prompt makes **all models build on
+  that one answer**, converging into three new cards under it.
+- **Click a prompt** node to select it (and open its answers); the next prompt then
+  has **each model continue its own answer** in that group, giving three parallel
+  parent-to-child lines.
+- With **nothing selected**, a new prompt continues from the **last answers** the
+  same way (three parallel lines, each model from its own).
+- Other answers are kept. Select any answer or prompt later and ask again to
+  explore a different branch, so the conversation grows into a tree.
+- A node or prompt that **already has follow-ups** can't be branched again; delete
+  its descendants first (× on the follow-up prompt) to ask a different question there.
+- **⤢** on a card opens/closes it without selecting; **Expand all answers** opens
+  every card. New answers open automatically while they stream. The layout
+  re-flows around the larger nodes.
+
+**Comparing the models** (prompt node, on hover)
+- **Compare**: a semantic synthesis of that prompt's answers (consensus,
+  differences, unique points), shown in a panel.
+- **Criticize**: every model critiques the others; or the `!` icon on an expanded
+  card has the others critique just that answer.
 - Syntheses and critiques are saved with the chat.
 
-**Per-response tools** (box header)
-- Expand a box to full width, copy the answer as markdown, delete an answer
-  (also removed from future context).
+**Per-card tools** (expanded card header)
+- Copy the answer as markdown; criticize just this answer.
 - **Humanize**: rewrite an answer to remove the AI tone (Korean text); a
   Settings toggle applies it to every response automatically.
 
@@ -51,7 +71,8 @@ Node/Express
 - Auto-saved history in the sidebar: rename (double-click), delete, deep-link
   via `?conv=<id>`.
 - **Temporary chat** mode: nothing is saved.
-- Per-turn and per-response deletion edits what context later turns see.
+- Deleting a prompt (`×` on hover) removes it, its answers, and the whole
+  subtree branched from them.
 
 **Settings & Skills**
 - Default models, base model per service (`opus`/`sonnet`/`haiku` or custom),

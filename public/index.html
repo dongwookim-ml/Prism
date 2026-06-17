@@ -24,6 +24,7 @@
     --claude: #cc7a56;
     --gemini: #4285f4;
     --codex:  #10a37f;
+    --sel:    #7c3aed;
     --app-font: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
     --read-size: 16px;
   }
@@ -214,8 +215,9 @@
   }
   .assistant pre code { background: none; padding: 0; color: inherit; }
   .assistant blockquote { margin: 0 0 .85em; padding: .2em 1em; border-left: 3px solid var(--line); color: var(--muted); }
-  .assistant table { border-collapse: collapse; margin: 0 0 .9em; width: 100%; font-size: .9em; }
-  .assistant th, .assistant td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+  .table-wrap { overflow-x: auto; margin: 0 0 .9em; }
+  .assistant table { border-collapse: collapse; margin: 0; width: auto; min-width: 100%; font-size: .9em; }
+  .assistant th, .assistant td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; white-space: nowrap; }
   .assistant hr { border: none; border-top: 1px solid var(--line); margin: 1.2em 0; }
   .assistant > *:first-child { margin-top: 0; } .assistant > *:last-child { margin-bottom: 0; }
 
@@ -235,6 +237,55 @@
   .copy-btn svg { width: 15px; height: 15px; }
   .copy-btn.copied { color: var(--codex); }
   .responses.has-expanded .response-box:not(.expanded) { display: none; }
+
+  /* ===== tree-of-thoughts (node graph) ===== */
+  .tree-toolbar { display: none; align-items: center; gap: 14px; padding: 7px 22px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.5); font-size: 12px; color: var(--muted); }
+  .tree-toolbar.show { display: flex; }
+  .tree-toolbar .tt-hint { flex: 1; }
+  .tree-toolbar .tt-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; color: #555; font-weight: 600; }
+
+  /* The graph: nodes absolutely positioned over an SVG edge layer. */
+  .tree-layer { position: relative; margin: 6px auto 0; }
+  .tree-edges { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+  .tedge { fill: none; stroke: #c7c7d6; stroke-width: 1.6; }
+
+  /* Prompt node: the question that produced a group's answers. */
+  .tprompt { position: absolute; box-sizing: border-box; max-width: 240px; background: var(--ink); color: #fff; border-radius: 13px; padding: 7px 12px; box-shadow: 0 3px 10px rgba(20,20,40,0.12); }
+  .tprompt .tp-text { font-size: 13px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .tprompt .tp-acts { display: none; gap: 4px; margin-top: 6px; }
+  .tprompt:hover .tp-acts { display: flex; }
+  .tp-btn { border: none; border-radius: 6px; background: rgba(255,255,255,0.16); color: #fff; font: inherit; font-size: 11px; font-weight: 600; padding: 2px 7px; cursor: pointer; }
+  .tp-btn:hover { background: rgba(255,255,255,0.3); }
+  .tprompt.selected { outline: 2.5px solid var(--sel); outline-offset: 2px; box-shadow: 0 0 0 4px rgba(124,58,237,0.18), 0 3px 10px rgba(20,20,40,0.12); }
+
+  /* Response node: compact (tinted, summary, expand-only) or expanded (white, full). */
+  .tnode { position: absolute; box-sizing: border-box; width: 184px; border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 12px; background: #eef0f5; cursor: pointer; overflow: hidden; box-shadow: 0 1px 3px rgba(20,20,40,0.05); transition: box-shadow .12s; }
+  .tnode[data-id="claude"] { --accent: var(--claude); }
+  .tnode[data-id="gemini"] { --accent: var(--gemini); }
+  .tnode[data-id="codex"]  { --accent: var(--codex); }
+  .tnode:hover { box-shadow: 0 3px 8px rgba(20,20,40,0.10), 0 10px 26px rgba(20,20,40,0.08); }
+  .tnode.expanded { width: 460px; background: #fff; cursor: default; box-shadow: 0 1px 3px rgba(20,20,40,0.05), 0 8px 24px rgba(20,20,40,0.08); }
+  .tnode.expanded .assistant { overflow-wrap: anywhere; }
+  /* Selected node/prompt: a distinct violet outline so it stands out from model colors. */
+  .tnode.selected { outline: 2.5px solid var(--sel); outline-offset: 2px; box-shadow: 0 0 0 4px rgba(124,58,237,0.18), 0 8px 22px rgba(20,20,40,0.14); }
+  .tnode-head { display: flex; align-items: center; gap: 7px; padding: 7px 9px; font-weight: 600; font-size: 13px; }
+  .tnode-head .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+  .tnode-head .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tnode.expanded .tnode-head { border-bottom: 1px solid var(--line); cursor: pointer; }
+  .tnode .assistant.tsummary { padding: 0 10px 10px; font-size: 12.5px; line-height: 1.4; color: #3a3a42; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .tnode .assistant.tsummary > * { margin: 0; }
+  .tnode.expanded .assistant { padding: 14px 16px; }
+
+  /* Composer notice (e.g. blocked branch). */
+  .composer-notice { display: none; max-width: 920px; margin: 0 auto 8px; font-size: 13px; color: #9a3b3b; background: #fdeaea; border: 1px solid #f0c7c7; border-radius: 10px; padding: 8px 12px; }
+  .composer-notice.show { display: block; }
+
+  /* Selection bar above the composer. */
+  .selection-bar { display: none; max-width: 920px; margin: 0 auto 8px; align-items: center; gap: 8px; font-size: 13px; color: #4a4a55; background: #f4f1fb; border: 1px solid #e2d9f6; border-radius: 10px; padding: 7px 10px 7px 12px; }
+  .selection-bar.show { display: flex; }
+  .selection-bar .sel-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6b5b8a; }
+  .selection-bar .sel-clear { border: none; background: none; color: #9a8cc0; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; }
+  .selection-bar .sel-clear:hover { color: #5b4a8a; }
   .rbox-del { flex: none; border: none; background: none; color: #c2c2cc; cursor: pointer; font-size: 17px; line-height: 1; padding: 0 4px; }
   .rbox-del:hover { color: #d9534f; }
   .msg.user { position: relative; }
@@ -368,8 +419,14 @@
     <div class="main">
       <div class="temp-banner" id="tempBanner">Temporary chat, not saved to history.</div>
       <div class="update-banner" id="updateBanner"></div>
+      <div class="tree-toolbar" id="treeToolbar">
+        <span class="tt-hint">Click an answer to open it and branch from it; click a prompt to open all its answers.</span>
+        <label class="tt-toggle"><input type="checkbox" id="expandAllToggle"> Expand all answers</label>
+      </div>
       <div class="conversation" id="conv"><div class="welcome" id="welcome"></div><div class="stream" id="stream"></div></div>
       <div class="composer">
+        <div class="composer-notice" id="composerNotice"></div>
+        <div class="selection-bar" id="selectionBar"></div>
         <div class="attachments" id="attachments"></div>
         <div class="composer-inner">
           <button class="attach" id="attachBtn" title="Attach files">
@@ -397,25 +454,27 @@
             <li><b>Enter</b> sends, <b>Shift+Enter</b> adds a newline.</li>
             <li><b>@Claude / @Gemini / @Codex</b> (or @ChatGPT) sends to only those models. No mention = your default models (Settings).</li>
             <li>Drag files anywhere (or click the paperclip) to attach text, code, images, or PDFs.</li>
-            <li>Each model sees the full conversation history, including turns answered by other models.</li>
           </ul>
         </div>
         <div class="skill-section">
-          <div class="skill-provider">Per-response buttons (box header)</div>
+          <div class="skill-provider">Tree of thoughts</div>
           <ul>
-            <li><b>⤢ Expand</b>: one box fills the row; click again to restore.</li>
-            <li><b>Copy</b>: copies the answer's markdown source.</li>
-            <li><b>! Criticize this</b>: the other models critique this answer; their takes appear under the box.</li>
-            <li><b>Humanize</b>: rewrites the answer to remove the AI tone (Korean text).</li>
-            <li><b>×</b>: deletes this answer (also removed from future context).</li>
+            <li>The chat is drawn as a <b>tree</b>: lines connect each answer to the answer it grew from, so you see exactly which response each branch came from.</li>
+            <li>Each answer is a compact <b>card</b> (tinted) showing a one-sentence summary the model wrote.</li>
+            <li><b>Click an answer</b> to open it (full text, white) and select it; <b>click again</b> to close it. With an answer selected, the next prompt makes <b>all models build on that one answer</b> (they converge into three new cards under it).</li>
+            <li><b>Click a prompt</b> node to select it (and open all its answers). The next prompt then has <b>each model continue its own answer</b> in that group, giving three parallel lines, parent to child.</li>
+            <li>With <b>nothing selected</b>, a new prompt continues from the <b>last answers</b> the same way (three parallel lines, each model from its own).</li>
+            <li>Other answers stay. Select any answer or prompt later and ask again to explore a different branch.</li>
+            <li>A node or prompt that <b>already has follow-ups</b> can't be branched again. Delete its follow-ups first (× on the follow-up prompt) to ask a different question there.</li>
+            <li><b>⤢</b> on a card opens/closes it without selecting. <b>Expand all answers</b> (top right) opens every card. New answers open automatically while they stream.</li>
           </ul>
         </div>
         <div class="skill-section">
-          <div class="skill-provider">Per-turn</div>
+          <div class="skill-provider">Prompt node (hover)</div>
           <ul>
-            <li><b>Compare answers</b>: semantic synthesis: consensus, differences, unique points.</li>
-            <li><b>Criticize</b>: every model critiques every other model's answer.</li>
-            <li><b>×</b> on the prompt bubble (hover): deletes the whole turn.</li>
+            <li><b>Compare</b>: semantic synthesis of that prompt's answers (consensus, differences, unique points), shown in a panel.</li>
+            <li><b>Criticize</b>: every model critiques the others; the per-card <b>!</b> (in the expanded view) has the others critique just that answer.</li>
+            <li><b>×</b>: deletes that prompt, its answers, and everything branched from them.</li>
             <li>Synthesis and critiques are saved with the chat.</li>
           </ul>
         </div>
@@ -508,23 +567,27 @@ function mdMath(text) {
   const tmp = document.createElement('div');
   tmp.innerHTML = DOMPurify.sanitize(marked.parse(t)); // math is still @@MJX@@ placeholders here
   fixEmphasis(tmp);
+  // Wrap tables so wide ones scroll horizontally instead of overflowing the card.
+  tmp.querySelectorAll('table').forEach((tbl) => { const w = document.createElement('div'); w.className = 'table-wrap'; tbl.replaceWith(w); w.appendChild(tbl); });
   return tmp.innerHTML.replace(/@@MJX(\d+)@@/g, (_, i) => {
     const { tex, display } = math[+i];
     return display ? `\\[${esc(tex)}\\]` : `\\(${esc(tex)}\\)`;
   });
 }
 
-function renderInto(el, text) {
+function renderInto(el, text, typeset = true) {
   // Codex messages are U+001E-separated; the last is the answer, earlier ones
   // (skill preambles) render as muted meta.
-  if ((text || '').includes('') && el.closest && el.closest('.response-box')?.dataset.id === 'codex') {
+  if ((text || '').includes('') && el.closest && el.closest('[data-id]')?.dataset.id === 'codex') {
     const parts = text.split('').map((s) => s.trim()).filter(Boolean);
     const main = parts.pop() || '';
     el.innerHTML = parts.map((p) => `<div class="codex-meta">${mdMath(p)}</div>`).join('') + mdMath(main);
   } else {
     el.innerHTML = mdMath((text || '').split('').join('\n\n'));
   }
-  if (/[\\$]/.test(text || '') && window.MathJax?.typesetPromise) {
+  // Only typeset settled text. Typesetting partial LaTeX on every stream chunk
+  // produces broken, oversized renders, so streaming passes typeset=false.
+  if (typeset && /[\\$]/.test(text || '') && window.MathJax?.typesetPromise) {
     if (MathJax.typesetClear) MathJax.typesetClear([el]);
     MathJax.typesetPromise([el]).catch(() => {});
   }
@@ -574,13 +637,11 @@ const stream = document.getElementById('stream');
 const convList = document.getElementById('convList');
 let MODELS = [];
 let currentId = null;       // active conversation id (null = unsaved new chat)
-let active = {};            // model id -> streaming slot for the in-flight turn
 let pendingFiles = [];      // [{ name, type, dataUrl, dataBase64 }]
 let temporary = false;      // ephemeral chat: responses not saved to history
 let defaultModels = [];     // models that answer when no @mention is given
 let serviceModels = {};     // per-service base model override (id -> model name)
 let customInstructions = '';// standing instructions prepended to every prompt
-let inflightTurn = null;    // DOM turn of the in-flight send (for turnIndex on save)
 
 const MENTION_ALIASES = { chatgpt: 'codex', gpt: 'codex' };
 function mentionToId(word) {
@@ -629,113 +690,396 @@ async function checkVersion() {
   } catch {}
 }
 
-// Build one turn (prompt bubble + answer boxes for the targeted models);
-// returns model -> {el,status}. modelIds omitted/empty means all models.
-function buildTurn(prompt, attachments, modelIds) {
-  const shown = (modelIds && modelIds.length) ? MODELS.filter((m) => modelIds.includes(m.id)) : MODELS;
-  const turn = document.createElement('div');
-  turn.className = 'turn';
-  const user = document.createElement('div');
-  user.className = 'msg user';
-  if (shown.length < MODELS.length) {
-    const t = document.createElement('div');
-    t.className = 'targets';
-    for (const m of shown) {
-      const pill = document.createElement('span');
-      pill.className = 'target';
-      pill.textContent = '@' + m.label.split(' ')[0];
-      t.appendChild(pill);
-    }
-    user.appendChild(t);
-  }
-  if (attachments && attachments.length) {
-    const atts = document.createElement('div');
-    atts.className = 'atts';
-    for (const name of attachments) {
-      const a = document.createElement('span');
-      a.className = 'att';
-      a.textContent = name;
-      atts.appendChild(a);
-    }
-    user.appendChild(atts);
-  }
-  if (prompt) {
-    const p = document.createElement('div');
-    p.textContent = prompt;
-    user.appendChild(p);
-  }
-  const turnDel = document.createElement('button');
-  turnDel.className = 'turn-del';
-  turnDel.title = 'Delete this prompt and its answers';
-  turnDel.textContent = '×';
-  turnDel.onclick = () => deleteTurn(turn);
-  user.appendChild(turnDel);
-  const responses = document.createElement('div');
-  responses.className = 'responses';
-  turn.append(user, responses);
-  const boxes = {};
-  for (const m of shown) {
-    const box = document.createElement('div');
-    box.className = 'response-box';
-    box.dataset.id = m.id;
-    box.innerHTML =
-      `<div class="rbox-head"><span class="dot"></span><span class="name">${m.label}</span>` +
-      `<span class="status"></span></div>`;
-    const body = document.createElement('div');
-    body.className = 'assistant';
-    box.appendChild(body);
-    responses.appendChild(box);
-    const exp = document.createElement('button');
-    exp.className = 'expand-btn';
-    exp.title = 'Expand / collapse';
-    exp.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
-    exp.onclick = () => toggleExpand(box);
-    box.querySelector('.rbox-head').appendChild(exp);
-    const cp = document.createElement('button');
-    cp.className = 'copy-btn';
-    cp.title = 'Copy markdown';
-    cp.innerHTML = COPY_SVG;
-    cp.onclick = () => copyResponse(box, cp);
-    box.querySelector('.rbox-head').appendChild(cp);
-    const crit = document.createElement('button');
-    crit.className = 'copy-btn crit-one-btn';
-    crit.title = 'Have the other models criticize this answer';
-    crit.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
-    box.querySelector('.rbox-head').appendChild(crit);
-    const btn = document.createElement('button');
-    btn.className = 'humanize-btn';
-    btn.textContent = 'Humanize';
-    box.querySelector('.rbox-head').appendChild(btn);
-    const del = document.createElement('button');
-    del.className = 'rbox-del';
-    del.title = 'Delete this answer';
-    del.textContent = '×';
-    del.onclick = () => deleteResponse(turn, m.id, box);
-    box.querySelector('.rbox-head').appendChild(del);
-    boxes[m.id] = { el: body, status: box.querySelector('.status'), box, btn, critBtn: crit };
-  }
-  const compareBar = document.createElement('div');
-  compareBar.className = 'compare-bar';
-  const compareBtn = document.createElement('button');
-  compareBtn.className = 'compare-btn';
-  compareBtn.textContent = 'Compare answers';
-  const criticizeBtn = document.createElement('button');
-  criticizeBtn.className = 'compare-btn';
-  criticizeBtn.textContent = 'Criticize';
-  compareBar.append(compareBtn, criticizeBtn);
-  if (shown.length >= 2) turn.appendChild(compareBar);
-  stream.appendChild(turn);
-  updateWelcome();
-  return { boxes, turn, compareBtn, criticizeBtn };
+// ===== tree-of-thoughts =====
+// Client mirror of the server node tree. A "group" is one prompt expansion (one
+// node per answering model). Selecting a node and prompting branches it into a
+// child group. The path from a node to its root is the context its children
+// build on. Cards show a one-sentence summary; "Expand all" shows full answers.
+let convModel = { id: null, groups: [], selected: null }; // selected: {kind:'node'|'group', id} | null
+let expandAll = false;
+let cardSlots = {};        // nodeId -> live streaming slot {raw,done,model,nodeId,el,box}
+let activeByModel = {};    // model -> slot, for the in-flight send
+let currentGroup = null;   // the group being streamed right now
+
+function resetModel() { convModel = { id: null, groups: [], selected: null }; expandAll = false; cardSlots = {}; }
+const findNodeC = (id) => { for (const g of convModel.groups) for (const n of g.nodes) if (n.id === id) return { group: g, node: n }; return {}; };
+const groupOf = (id) => convModel.groups.find((g) => g.id === id);
+const childNodesOf = (nodeId) => convModel.groups.flatMap((g) => g.nodes).filter((n) => n.parentId === nodeId);
+const isNodeSel = (id) => convModel.selected && convModel.selected.kind === 'node' && convModel.selected.id === id;
+const isGroupSel = (id) => convModel.selected && convModel.selected.kind === 'group' && convModel.selected.id === id;
+
+// Context chain root..node: each node's own prompt + answer, oldest first.
+function buildContext(nodeId) {
+  const out = [];
+  let cur = nodeId;
+  while (cur) { const { group, node } = findNodeC(cur); if (!node) break; out.push({ prompt: group.prompt, text: node.text }); cur = node.parentId; }
+  return out.reverse();
 }
 
-// Click expand: one box fills the row (siblings hidden); click again restores.
-function toggleExpand(box) {
-  const row = box.parentElement;
-  const already = box.classList.contains('expanded');
-  row.querySelectorAll('.response-box.expanded').forEach((b) => b.classList.remove('expanded'));
-  if (already) row.classList.remove('has-expanded');
-  else { box.classList.add('expanded'); row.classList.add('has-expanded'); }
+const EXPAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+const COLLAPSE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+const CRIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+
+// Set (or clear) the selection ({kind:'node'|'group', id} | null) and persist it.
+async function setSelected(sel) {
+  convModel.selected = sel;
+  clearComposerNotice();
+  renderTree();
+  updateSelectionBar();
+  if (convModel.id) {
+    try { await fetch(`/conversations/${convModel.id}/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sel || {}) }); } catch {}
+  }
+}
+
+// Click a response node: if open, close it (and deselect if it was selected);
+// if closed, open it and select it (the next prompt branches all models from
+// this one answer).
+function onNodeClick(node) {
+  if (node._expanded) {
+    node._expanded = false;
+    if (isNodeSel(node.id)) setSelected(null); else renderTree();
+  } else {
+    node._expanded = true;
+    setSelected({ kind: 'node', id: node.id });
+  }
+}
+
+// Click a prompt node: select the group (the next prompt continues each model's
+// own answer in this group) and open all its answers; click again to deselect
+// and collapse them.
+function onPromptClick(group) {
+  if (isGroupSel(group.id)) { group.nodes.forEach((n) => { n._expanded = false; }); setSelected(null); }
+  else { group.nodes.forEach((n) => { n._expanded = true; }); setSelected({ kind: 'group', id: group.id }); }
+}
+
+const groupTexts = (group) => Object.fromEntries(group.nodes.map((n) => [n.model, n.text || '']));
+const modelLabel = (id) => (MODELS.find((m) => m.id === id) || {}).label || id;
+
+// A prompt node: the question that produced a group's answers. Hover for the
+// group actions (Compare / Criticize / delete branch).
+function promptEl(group) {
+  const el = document.createElement('div');
+  el.className = 'tprompt' + (isGroupSel(group.id) ? ' selected' : '');
+  el.dataset.groupId = group.id;
+  const txt = document.createElement('div');
+  txt.className = 'tp-text';
+  txt.textContent = group.prompt || (group.attachments && group.attachments.length ? group.attachments.join(', ') : '[prompt]');
+  txt.title = group.prompt || '';
+  el.appendChild(txt);
+  const acts = document.createElement('div');
+  acts.className = 'tp-acts';
+  const mk = (label, title, fn) => { const b = document.createElement('button'); b.className = 'tp-btn'; b.textContent = label; b.title = title; b.onclick = (e) => { e.stopPropagation(); fn(); }; return b; };
+  if (group.nodes.length >= 2) {
+    acts.appendChild(mk('Compare', 'Compare answers (synthesis)', () => openSynthesisModal(group)));
+    acts.appendChild(mk('Criticize', 'Each model critiques the others', () => openCritiqueModal(group, null)));
+  }
+  acts.appendChild(mk('×', 'Delete this prompt, its answers, and everything branched from them', () => deleteGroup(group.id)));
+  el.appendChild(acts);
+  el.title = 'Click to select this prompt (each model continues its own answer) and open all answers';
+  el.addEventListener('click', (e) => { if (e.target.closest('button')) return; onPromptClick(group); });
+  return el;
+}
+
+// A response node. Compact (tinted, summary, only the expand icon) or expanded
+// (white, full answer, all icons). Click opens it and selects it to branch from;
+// click again closes it. The ⤢ icon expands/collapses without selecting.
+function cardEl(node, group) {
+  const expanded = expandAll || node._expanded;
+  const slot = cardSlots[node.id];
+  const streaming = slot && !slot.done;
+  const box = document.createElement('div');
+  box.className = 'tnode' + (expanded ? ' expanded' : '') + (isNodeSel(node.id) ? ' selected' : '');
+  box.dataset.id = node.model;
+  box.dataset.node = node.id;
+  const head = document.createElement('div');
+  head.className = 'tnode-head';
+  head.innerHTML = `<span class="dot"></span><span class="name">${modelLabel(node.model)}</span><span class="status"></span>`;
+  const stop = (fn) => (e) => { e.stopPropagation(); fn(e); };
+  const exp = document.createElement('button');
+  exp.className = 'expand-btn'; exp.title = expanded ? 'Show summary' : 'Show full answer';
+  exp.innerHTML = expanded ? COLLAPSE_SVG : EXPAND_SVG; exp.onclick = stop(() => { node._expanded = !expanded; renderTree(); });
+  head.appendChild(exp);
+  let humBtn = null;
+  if (expanded) { // full toolbar only in the expanded view
+    const cp = document.createElement('button');
+    cp.className = 'copy-btn'; cp.title = 'Copy markdown'; cp.innerHTML = COPY_SVG; cp.onclick = stop(() => copyResponse(box, cp));
+    head.appendChild(cp);
+    const crit = document.createElement('button');
+    crit.className = 'copy-btn'; crit.title = 'Have the other answers criticize this one'; crit.innerHTML = CRIT_SVG;
+    crit.onclick = stop(() => openCritiqueModal(group, node.model));
+    head.appendChild(crit);
+    humBtn = document.createElement('button');
+    humBtn.className = 'humanize-btn'; humBtn.textContent = 'Humanize';
+    head.appendChild(humBtn);
+  }
+  box.appendChild(head);
+  const body = document.createElement('div');
+  body.className = 'assistant' + (expanded ? '' : ' tsummary');
+  box.appendChild(body);
+  box._md = node.text;
+  if (humBtn) humBtn.onclick = stop(() => humanize({ box, el: body, btn: humBtn }, () => node.text));
+
+  if (streaming) {
+    setStatus(head.querySelector('.status'), 'thinking', true);
+    if (slot.raw) renderInto(body, slot.raw, false); else body.innerHTML = LOADER;
+  } else {
+    setStatus(head.querySelector('.status'), node.text ? 'done' : '', false);
+    renderInto(body, expanded ? (node.text || '') : (node.summary || node.text || ''));
+  }
+  if (expanded) { // persisted critiques live inside the expanded card
+    if (group.critiques && group.critiques[node.model]) renderInto(critiqueEl(box), group.critiques[node.model]);
+    if (group.critiquesOf && group.critiquesOf[node.model]) for (const [cid, t] of Object.entries(group.critiquesOf[node.model])) if (t) renderInto(critiquesOfRow(box, cid), t);
+  }
+  const onClick = (e) => { if (e.target.closest('button') || (window.getSelection && String(window.getSelection())) ) return; onNodeClick(node); };
+  (expanded ? head : box).addEventListener('click', onClick);
+  return box;
+}
+
+// Layout is a tree of RESPONSE nodes: each node's children are the answers whose
+// parentId points at it. Convergent branches fan out from one node; parallel
+// branches keep each model under its own parent. Prompts render as labels
+// annotating the band above each group's answers, not as edge nodes.
+function buildNodeForest() {
+  const unit = (node) => ({ node, group: findNodeC(node.id).group, children: childNodesOf(node.id).map(unit) });
+  const roots = convModel.groups.flatMap((g) => g.nodes).filter((n) => !n.parentId || !findNodeC(n.parentId).node);
+  return roots.map(unit);
+}
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+const HGAP = 22, VGAP = 40, LBL_GAP = 34;
+
+function renderTree() {
+  stream.innerHTML = '';
+  document.getElementById('treeToolbar').classList.toggle('show', convModel.groups.length > 0);
+  document.getElementById('expandAllToggle').checked = expandAll;
+  if (!convModel.groups.length) { updateWelcome(); return; }
+
+  const forest = buildNodeForest();
+  const layer = document.createElement('div');
+  layer.className = 'tree-layer';
+  const svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('class', 'tree-edges');
+  layer.appendChild(svg);
+
+  // Build + measure response-node cards (depth = generation).
+  const all = [];
+  const build = (u, depth) => { u.depth = depth; u.el = cardEl(u.node, u.group); layer.appendChild(u.el); all.push(u); u.children.forEach((c) => build(c, depth + 1)); };
+  forest.forEach((u) => build(u, 0));
+
+  // Build + measure one prompt label per group (an annotation, not a layout node).
+  const labels = convModel.groups.map((g) => { const el = promptEl(g); layer.appendChild(el); return { group: g, el }; });
+  stream.appendChild(layer); // attached: sizes now measurable
+
+  for (const u of all) { u.w = u.el.offsetWidth; u.h = u.el.offsetHeight; }
+  for (const l of labels) { l.w = l.el.offsetWidth; l.h = l.el.offsetHeight; }
+
+  // Each group's answers share a depth; its label sits in the band above them.
+  const nodeDepth = {};
+  for (const u of all) nodeDepth[u.node.id] = u.depth;
+  const depthOfGroup = (g) => { const n = g.nodes.find((x) => nodeDepth[x.id] != null); return n ? nodeDepth[n.id] : 0; };
+  for (const l of labels) l.depth = depthOfGroup(l.group);
+
+  const maxDepth = all.reduce((m, u) => Math.max(m, u.depth), 0);
+  const rowH = [];
+  for (let d = 0; d <= maxDepth; d++) rowH[d] = 0;
+  for (const u of all) rowH[u.depth] = Math.max(rowH[u.depth], u.h);
+
+  // x (independent of y): give each subtree a slot wide enough for both its node
+  // and its children block, so a wide node never overlaps a sibling; center the
+  // node over its children within that slot.
+  const subWidth = (u) => {
+    let childrenW = 0;
+    u.children.forEach((c, i) => { childrenW += subWidth(c) + (i ? HGAP : 0); });
+    u.sw = Math.max(u.w, childrenW);
+    return u.sw;
+  };
+  const assignX = (u, left) => {
+    if (!u.children.length) { u.x = left + u.sw / 2; return; }
+    const childrenW = u.children.reduce((a, c, i) => a + c.sw + (i ? HGAP : 0), 0);
+    let cx = left + (u.sw - childrenW) / 2;
+    for (const c of u.children) { assignX(c, cx); cx += c.sw + HGAP; }
+    u.x = (u.children[0].x + u.children[u.children.length - 1].x) / 2;
+  };
+  let slotLeft = 0;
+  for (const u of forest) { subWidth(u); assignX(u, slotLeft); slotLeft += u.sw + HGAP; }
+  const nodeX = {};
+  for (const u of all) nodeX[u.node.id] = u.x;
+
+  // Each label is centered over its group's answers. If labels in the same band
+  // would overlap horizontally, stack them onto sub-rows so they never collide.
+  const LBL_HGAP = 14, SUB_GAP = 6;
+  for (const l of labels) {
+    const xs = l.group.nodes.map((n) => nodeX[n.id]).filter((v) => v != null);
+    l.cx = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : l.w / 2 + 4;
+    l.left = l.cx - l.w / 2; l.right = l.cx + l.w / 2;
+  }
+  const rowsHByDepth = {};
+  for (let d = 0; d <= maxDepth; d++) rowsHByDepth[d] = [];
+  for (let d = 0; d <= maxDepth; d++) {
+    const ls = labels.filter((l) => l.depth === d).sort((a, b) => a.left - b.left);
+    const rowsRight = [], rowsH = rowsHByDepth[d];
+    for (const l of ls) {
+      let r = rowsRight.findIndex((rr) => l.left >= rr + LBL_HGAP);
+      if (r < 0) { r = rowsRight.length; rowsRight.push(-Infinity); rowsH.push(0); }
+      rowsRight[r] = l.right; rowsH[r] = Math.max(rowsH[r], l.h); l.row = r;
+    }
+  }
+  const bandH = [];
+  for (let d = 0; d <= maxDepth; d++) { const rh = rowsHByDepth[d]; bandH[d] = rh.length ? rh.reduce((a, b) => a + b, 0) + (rh.length - 1) * SUB_GAP : 0; }
+
+  const labelY = [], nodeY = []; let acc = 0;
+  for (let d = 0; d <= maxDepth; d++) {
+    labelY[d] = acc; acc += bandH[d] + (bandH[d] ? LBL_GAP : 0);
+    nodeY[d] = acc; acc += rowH[d] + VGAP;
+  }
+  const rowTop = (d, r) => { const rh = rowsHByDepth[d]; let off = 0; for (let i = 0; i < r; i++) off += rh[i] + SUB_GAP; return labelY[d] + off; };
+
+  let maxRight = 0;
+  const nodeXById = {};
+  for (const u of all) { u.y = nodeY[u.depth]; nodeXById[u.node.id] = { x: u.x, y: u.y, h: u.h }; const left = u.x - u.w / 2; u.el.style.left = left + 'px'; u.el.style.top = u.y + 'px'; maxRight = Math.max(maxRight, left + u.w); }
+
+  // Place each label over its answers, on its assigned sub-row.
+  for (const l of labels) {
+    l.top = rowTop(l.depth, l.row);
+    l.el.style.left = l.left + 'px';
+    l.el.style.top = l.top + 'px';
+    maxRight = Math.max(maxRight, l.right);
+  }
+
+  const W = maxRight + 12, H = acc;
+  layer.style.width = W + 'px'; layer.style.height = H + 'px';
+  svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  const edge = (x1, y1, x2, y2) => {
+    const dy = Math.max(14, (y2 - y1) * 0.45);
+    const path = document.createElementNS(SVGNS, 'path');
+    path.setAttribute('class', 'tedge');
+    path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`);
+    svg.appendChild(path);
+  };
+  // Lineage: each answer connects up to its own parent (fan for convergent,
+  // parallel otherwise). Root answers have no parent, so link them to their
+  // prompt label instead, so the root prompt is connected to its answers too.
+  for (const u of all) {
+    const p = u.node.parentId && nodeXById[u.node.parentId];
+    if (p) edge(p.x, p.y + p.h, u.x, u.y);
+  }
+  for (const l of labels) {
+    for (const n of l.group.nodes) {
+      const pos = nodeXById[n.id];
+      if (pos && !(n.parentId && nodeXById[n.parentId])) edge(l.cx, l.top + l.h, pos.x, pos.y);
+    }
+  }
+  rebindSlots();
+  updateWelcome();
+}
+
+// Re-render still-streaming cards after a structural renderTree (DOM rebuilt).
+function rebindSlots() {
+  for (const id in cardSlots) {
+    const slot = cardSlots[id];
+    if (slot.done) continue;
+    const box = stream.querySelector(`.tnode[data-node="${CSS.escape(id)}"]`);
+    if (!box) continue;
+    slot.box = box; slot.el = box.querySelector('.assistant');
+    setStatus(box.querySelector('.status'), 'thinking', true);
+    if (slot.raw) renderInto(slot.el, slot.raw, false); else slot.el.innerHTML = LOADER;
+  }
+}
+
+// Compare (synthesis) and Criticize results are group-wide, so they open in a
+// modal rather than distort the node graph.
+function openTreeModal(title) {
+  let ov = document.getElementById('treeModal');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'treeModal'; ov.className = 'modal-overlay';
+    ov.innerHTML = '<div class="modal"><div class="modal-head"><h2></h2><button class="modal-close">&times;</button></div><div class="modal-body tree-modal-body"></div></div>';
+    document.body.appendChild(ov);
+    ov.querySelector('.modal-close').onclick = () => ov.classList.remove('show');
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  ov.querySelector('h2').textContent = title;
+  const body = ov.querySelector('.tree-modal-body');
+  body.innerHTML = '';
+  ov.classList.add('show');
+  return body;
+}
+
+async function openSynthesisModal(group) {
+  const body = openTreeModal('Synthesis');
+  if (group.synthesis) {
+    renderSynthesis(body, group.synthesis);
+    const re = document.createElement('button');
+    re.className = 'compare-btn'; re.textContent = 'Recompute'; re.style.marginTop = '12px';
+    re.onclick = () => { body.innerHTML = ''; compare(body, () => groupTexts(group), document.createElement('button'), group.prompt, group.id); };
+    body.appendChild(re);
+  } else {
+    await compare(body, () => groupTexts(group), document.createElement('button'), group.prompt, group.id);
+  }
+}
+
+async function openCritiqueModal(group, target) {
+  const texts = groupTexts(group);
+  const answered = Object.keys(texts).filter((id) => texts[id] && texts[id].trim());
+  if (answered.length < 2) return;
+  const ids = target ? answered.filter((id) => id !== target) : answered;
+  const body = openTreeModal(target ? `Critiques of ${modelLabel(target)}` : 'Critiques');
+  const bodies = {}, raws = {};
+  for (const id of ids) {
+    const sec = document.createElement('div'); sec.className = 'critique';
+    sec.innerHTML = `<div class="critique-label">Critics by ${MODEL_SHORT[id] || id}</div><div class="critique-body"></div>`;
+    body.appendChild(sec);
+    bodies[id] = sec.querySelector('.critique-body'); bodies[id].innerHTML = LOADER; raws[id] = '';
+  }
+  try {
+    const res = await fetch('/criticize', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: group.prompt || '', responses: texts, target: target || undefined, conversationId: currentId, groupId: group.id }),
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        const evt = JSON.parse(line);
+        if (evt.type === 'chunk' && bodies[evt.model] != null) { raws[evt.model] += evt.text; renderInto(bodies[evt.model], raws[evt.model]); }
+      }
+    }
+    const g = convModel.groups.find((x) => x.id === group.id);
+    if (g) { if (target) { g.critiquesOf = g.critiquesOf || {}; g.critiquesOf[target] = { ...raws }; } else g.critiques = { ...raws }; }
+  } catch {}
+}
+
+function showComposerNotice(msg) { const el = document.getElementById('composerNotice'); el.textContent = msg; el.classList.add('show'); }
+function clearComposerNotice() { const el = document.getElementById('composerNotice'); el.classList.remove('show'); el.textContent = ''; }
+
+// Composer banner showing what the next prompt will build on.
+function updateSelectionBar() {
+  const bar = document.getElementById('selectionBar');
+  const sel = convModel.selected;
+  let label = '', summary = '';
+  if (sel && sel.kind === 'node') {
+    const { node } = findNodeC(sel.id);
+    if (node) { label = `Branching from <b>${MODEL_SHORT[node.model] || node.model}</b>:`; summary = node.summary || node.text || ''; }
+  } else if (sel && sel.kind === 'group') {
+    const g = groupOf(sel.id);
+    if (g) { label = 'Continuing each model from:'; summary = g.prompt || '[prompt]'; }
+  }
+  if (!label) { bar.classList.remove('show'); bar.innerHTML = ''; return; }
+  bar.innerHTML = `<span class="sel-label">${label}</span> <span class="sel-sum"></span><button class="sel-clear" title="Clear selection">×</button>`;
+  bar.querySelector('.sel-sum').textContent = summary;
+  bar.querySelector('.sel-clear').onclick = () => {
+    if (sel.kind === 'node') { const { node } = findNodeC(sel.id); if (node) node._expanded = false; }
+    setSelected(null);
+  };
+  bar.classList.add('show');
 }
 
 function setStatus(statusEl, label, running) {
@@ -749,7 +1093,7 @@ function scheduleRender(slot) {
   requestAnimationFrame(() => {
     slot.pending = false;
     const atBottom = conv.scrollHeight - conv.scrollTop - conv.clientHeight < 100;
-    renderInto(slot.el, slot.raw);
+    renderInto(slot.el, slot.raw, false); // streaming: skip MathJax until settled
     if (slot.box) slot.box._md = slot.raw;
     if (atBottom) conv.scrollTop = conv.scrollHeight;
   });
@@ -799,8 +1143,36 @@ async function send() {
   const ta = document.getElementById('prompt');
   const { ids: mentioned, cleaned: prompt } = parseMention(ta.value.trim());
   if (!prompt && !pendingFiles.length) return;
+  const base = (defaultModels.length ? defaultModels : MODELS.map((m) => m.id));
+  const pick = mentioned.length ? mentioned : base;
+  const targetIds = MODELS.filter((m) => pick.includes(m.id)).map((m) => m.id);
+
+  // Decide per-model parent + context:
+  //  - a response node selected  -> every model branches from that one answer (convergent)
+  //  - a prompt/group selected    -> each model continues its own answer in that group (parallel)
+  //  - nothing selected           -> continue per model from the last group
+  //  - no groups yet              -> first prompt, no parent
+  const sel = convModel.selected;
+  const singleNodeId = (sel && sel.kind === 'node' && findNodeC(sel.id).node) ? sel.id : null;
+  const explicitGroup = (sel && sel.kind === 'group') ? groupOf(sel.id) : null;
+  const parentGroup = singleNodeId ? null
+    : explicitGroup ? explicitGroup
+    : (!sel && convModel.groups.length) ? convModel.groups[convModel.groups.length - 1]
+    : null;
+
+  // Guardrail: a node/prompt you explicitly selected that already has follow-up
+  // answers can't be branched again until you delete those descendants first.
+  const hasDescendants = singleNodeId ? childNodesOf(singleNodeId).length > 0
+    : explicitGroup ? explicitGroup.nodes.some((n) => childNodesOf(n.id).length > 0)
+    : false;
+  if (hasDescendants) {
+    showComposerNotice('This ' + (singleNodeId ? 'answer' : 'prompt') + ' already has follow-ups. Delete them first (× on the follow-up prompt) to ask a different question here.');
+    return;
+  }
+
   const btn = document.getElementById('send');
   btn.disabled = true;
+  clearComposerNotice();
 
   const files = pendingFiles.map((f) => ({ name: f.name, dataBase64: f.dataBase64 }));
   const attachments = pendingFiles.map((f) => f.name);
@@ -809,31 +1181,37 @@ async function send() {
   pendingFiles = [];
   renderChips();
 
-  const base = (defaultModels.length ? defaultModels : MODELS.map((m) => m.id));
-  const pick = mentioned.length ? mentioned : base;
-  const targetIds = MODELS.filter((m) => pick.includes(m.id)).map((m) => m.id);
-  const { boxes, turn, compareBtn, criticizeBtn } = buildTurn(prompt, attachments, targetIds);
-  inflightTurn = turn;
-  active = {};
+  const nodeParents = {}, contexts = {};
   for (const id of targetIds) {
-    boxes[id].el.innerHTML = LOADER; // bouncing dots until the first token arrives
-    const slot = { raw: '', el: boxes[id].el, status: boxes[id].status, box: boxes[id].box, btn: boxes[id].btn, pending: false };
-    setStatus(slot.status, 'thinking', true);
-    slot.btn.onclick = () => humanize(slot, () => slot.raw);
-    active[id] = slot;
+    let pid = singleNodeId;
+    if (!pid && parentGroup) { const pn = parentGroup.nodes.find((n) => n.model === id) || parentGroup.nodes[0]; pid = pn ? pn.id : null; }
+    nodeParents[id] = pid || null;
+    contexts[id] = pid ? buildContext(pid) : [];
   }
-  compareBtn.onclick = () => compare(turn, () => Object.fromEntries(targetIds.map((id) => [id, boxes[id].el.textContent || ''])), compareBtn, prompt);
-  criticizeBtn.onclick = () => criticize(turn, () => Object.fromEntries(targetIds.map((id) => [id, boxes[id].box._md || ''])), criticizeBtn, prompt);
-  turn._prompt = prompt;
-  for (const id of targetIds) {
-    boxes[id].critBtn.onclick = () => criticizeOne(turn, () => Object.fromEntries(targetIds.map((x) => [x, boxes[x].box._md || ''])), id, boxes[id].box, boxes[id].critBtn);
+
+  // Optimistic group with placeholder ids; the server returns real ids on 'saved'.
+  // parentId references already-committed nodes, so it stays valid as-is.
+  const seed = 'p' + Math.random().toString(36).slice(2);
+  const group = {
+    id: seed, prompt, attachments,
+    // New answers start expanded so you read them as they stream, not collapsed.
+    nodes: targetIds.map((id) => ({ id: seed + '-' + id, model: id, text: '', summary: '', parentId: nodeParents[id], _expanded: true })),
+  };
+  convModel.groups.push(group);
+  currentGroup = group;
+  activeByModel = {};
+  for (const n of group.nodes) {
+    const slot = { raw: '', done: false, model: n.model, nodeId: n.id };
+    cardSlots[n.id] = slot;
+    activeByModel[n.model] = slot;
   }
+  renderTree();
   conv.scrollTop = conv.scrollHeight;
 
   const res = await fetch('/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, conversationId: currentId, files, models: targetIds, temporary }),
+    body: JSON.stringify({ prompt, conversationId: convModel.id, nodeParents, contexts, files, models: targetIds, temporary }),
   });
 
   const reader = res.body.getReader();
@@ -849,26 +1227,53 @@ async function send() {
       if (line.trim()) handle(JSON.parse(line));
     }
   }
+  currentGroup = null;
   btn.disabled = false;
 }
 
 function handle(evt) {
   if (evt.type === 'saved') {
-    currentId = evt.conversationId;
-    if (inflightTurn && evt.turnIndex != null) inflightTurn.dataset.turnIndex = evt.turnIndex;
+    convModel.id = currentId = evt.conversationId;
+    if (currentGroup) {
+      for (const n of currentGroup.nodes) {
+        const newId = evt.nodes[n.model];
+        if (!newId || newId === n.id) continue;
+        const slot = cardSlots[n.id];
+        delete cardSlots[n.id];
+        n.id = newId;
+        if (slot) { slot.nodeId = newId; cardSlots[newId] = slot; activeByModel[n.model] = slot; }
+      }
+      currentGroup.id = evt.groupId;
+      renderTree(); // rebindSlots re-attaches the still-streaming cards
+    }
     loadSidebar();
     return;
   }
-  const slot = active[evt.model];
+  const slot = activeByModel[evt.model];
   if (!slot) return;
   if (evt.type === 'chunk') {
     slot.raw += evt.text;
-    scheduleRender(slot);
+    if (slot.el) scheduleRender(slot);
   } else if (evt.type === 'done') {
-    scheduleRender(slot);
-    setStatus(slot.status, 'done', false);
-    if (humanizeDefaultOn() && slot.raw.trim()) humanize(slot, () => slot.raw);
+    slot.done = true;
+    const { node } = findNodeC(slot.nodeId);
+    if (node) { node.text = evt.body || slot.raw; node.summary = evt.summary || ''; }
+    const box = settleCard(slot); // re-layout; this card now shows its summary
+    const hb = box && box.querySelector('.humanize-btn'); // only the expanded view has it
+    if (hb && humanizeDefaultOn() && node && node.text.trim()) {
+      humanize({ box, el: box.querySelector('.assistant'), btn: hb }, () => node.text);
+    }
   }
+}
+
+// Switch a finished card from its streaming text to its summary (or full answer
+// if expanded), in place, without a full re-render.
+function settleCard(slot) {
+  // A compact card has a fixed size, so once one answer lands the parent's edge
+  // endpoints don't move; a full re-layout would still be needed if a sibling's
+  // expanded height changed, but for the common compact case settle in place.
+  renderTree();
+  return stream.querySelector(`.tnode[data-node="${CSS.escape(slot.nodeId)}"]`);
 }
 
 async function loadSidebar() {
@@ -939,7 +1344,7 @@ async function humanize(slot, getText) {
 // Semantic synthesis of a turn's answers, rendered with per-model colors.
 const MODEL_SHORT = { claude: 'Claude', gemini: 'Gemini', codex: 'ChatGPT' };
 
-async function compare(turn, getTexts, btn, prompt) {
+async function compare(turn, getTexts, btn, prompt, groupId) {
   const texts = getTexts();
   if (Object.values(texts).filter((t) => t && t.trim()).length < 2) return;
   btn.disabled = true;
@@ -952,10 +1357,13 @@ async function compare(turn, getTexts, btn, prompt) {
   try {
     const r = await fetch('/compare', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, responses: texts, conversationId: currentId, turnIndex: turn.dataset.turnIndex != null ? Number(turn.dataset.turnIndex) : undefined }),
+      body: JSON.stringify({ prompt, responses: texts, conversationId: currentId, groupId }),
     }).then((res) => res.json());
-    if (r.text) renderSynthesis(turn, r.text);
-    else el.innerHTML = '<div class="synthesis-head">Synthesis</div><div class="skill-empty">' + (r.error || 'No result.') + '</div>';
+    if (r.text) {
+      const g = convModel.groups.find((x) => x.id === groupId);
+      if (g) g.synthesis = r.text; // keep it through later re-renders
+      renderSynthesis(turn, r.text);
+    } else el.innerHTML = '<div class="synthesis-head">Synthesis</div><div class="skill-empty">' + (r.error || 'No result.') + '</div>';
   } catch {
     el.innerHTML = '<div class="synthesis-head">Synthesis</div><div class="skill-empty">Compare failed.</div>';
   }
@@ -983,50 +1391,6 @@ function critiqueEl(box) {
   return el.querySelector('.critique-body');
 }
 
-async function criticize(turn, getTexts, btn, prompt) {
-  const texts = getTexts();
-  const ids = Object.keys(texts).filter((id) => texts[id] && texts[id].trim());
-  if (ids.length < 2) return;
-  btn.disabled = true;
-  const lbl = btn.textContent;
-  btn.textContent = 'Criticizing…';
-  const bodies = {};
-  const raws = {};
-  for (const id of ids) {
-    const box = turn.querySelector(`.response-box[data-id="${id}"]`);
-    if (!box) continue;
-    bodies[id] = critiqueEl(box);
-    bodies[id].innerHTML = LOADER;
-    raws[id] = '';
-  }
-  try {
-    const res = await fetch('/criticize', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, responses: texts, conversationId: currentId, turnIndex: turn.dataset.turnIndex != null ? Number(turn.dataset.turnIndex) : undefined }),
-    });
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-        if (!line.trim()) continue;
-        const evt = JSON.parse(line);
-        if (evt.type === 'chunk' && bodies[evt.model] != null) {
-          raws[evt.model] += evt.text;
-          renderInto(bodies[evt.model], raws[evt.model]);
-        }
-      }
-    }
-  } catch {}
-  btn.disabled = false;
-  btn.textContent = lbl;
-}
-
 // Targeted critiques: rows (one per critic) under the criticized box.
 function critiquesOfRow(box, criticId) {
   let el = box.querySelector('.critiques-of');
@@ -1048,40 +1412,6 @@ function critiquesOfRow(box, criticId) {
     el.appendChild(row);
   }
   return row.querySelector('.critique-body');
-}
-
-async function criticizeOne(turn, getTexts, targetId, box, btn) {
-  const texts = getTexts();
-  if (Object.keys(texts).filter((id) => texts[id] && texts[id].trim()).length < 2) return;
-  btn.disabled = true;
-  const critics = Object.keys(texts).filter((id) => id !== targetId && texts[id] && texts[id].trim());
-  const bodies = {}, raws = {};
-  for (const id of critics) { bodies[id] = critiquesOfRow(box, id); bodies[id].innerHTML = LOADER; raws[id] = ''; }
-  try {
-    const res = await fetch('/criticize', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: turn._prompt || '', responses: texts, target: targetId, conversationId: currentId, turnIndex: turn.dataset.turnIndex != null ? Number(turn.dataset.turnIndex) : undefined }),
-    });
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-        if (!line.trim()) continue;
-        const evt = JSON.parse(line);
-        if (evt.type === 'chunk' && bodies[evt.model] != null) {
-          raws[evt.model] += evt.text;
-          renderInto(bodies[evt.model], raws[evt.model]);
-        }
-      }
-    }
-  } catch {}
-  btn.disabled = false;
 }
 
 function synPill(modelId) {
@@ -1159,43 +1489,11 @@ function renderSynthesis(turn, text) {
 async function openConversation(id) {
   const c = await fetch('/conversations/' + id).then(r => r.json());
   markTemporary(false);
-  currentId = id;
-  stream.innerHTML = '';
-  c.turns.forEach((turn, i) => {
-    const shownIds = Object.keys(turn.responses || {});
-    const { boxes, turn: turnEl, compareBtn, criticizeBtn } = buildTurn(turn.prompt, turn.attachments, shownIds);
-    turnEl.dataset.turnIndex = i;
-    for (const id of shownIds) {
-      if (!boxes[id]) continue;
-      renderInto(boxes[id].el, turn.responses[id]);
-      boxes[id].box._md = turn.responses[id];
-      setStatus(boxes[id].status, 'done', false);
-      const text = turn.responses[id];
-      boxes[id].btn.onclick = () => humanize(boxes[id], () => text);
-    }
-    compareBtn.onclick = () => compare(turnEl, () => turn.responses, compareBtn, turn.prompt);
-    criticizeBtn.onclick = () => criticize(turnEl, () => turn.responses, criticizeBtn, turn.prompt);
-    turnEl._prompt = turn.prompt;
-    for (const id of shownIds) {
-      if (!boxes[id]) continue;
-      boxes[id].critBtn.onclick = () => criticizeOne(turnEl, () => turn.responses, id, boxes[id].box, boxes[id].critBtn);
-    }
-    if (turn.synthesis) renderSynthesis(turnEl, turn.synthesis);
-    if (turn.critiques) {
-      for (const [id, text] of Object.entries(turn.critiques)) {
-        if (!text || !boxes[id]) continue;
-        renderInto(critiqueEl(boxes[id].box), text);
-      }
-    }
-    if (turn.critiquesOf) {
-      for (const [tid, byCritic] of Object.entries(turn.critiquesOf)) {
-        if (!boxes[tid]) continue;
-        for (const [cid, text] of Object.entries(byCritic)) {
-          if (text) renderInto(critiquesOfRow(boxes[tid].box, cid), text);
-        }
-      }
-    }
-  });
+  resetModel();
+  convModel = { id: c.id, groups: c.groups || [], selected: c.selected || null };
+  currentId = c.id;
+  renderTree();
+  updateSelectionBar();
   conv.scrollTop = conv.scrollHeight;
   loadSidebar();
 }
@@ -1208,8 +1506,9 @@ function markTemporary(on) {
 
 function resetView() {
   currentId = null;
-  stream.innerHTML = '';
-  updateWelcome();
+  resetModel();
+  renderTree();
+  updateSelectionBar();
   pendingFiles = [];
   renderChips();
   loadSidebar();
@@ -1255,27 +1554,31 @@ function startRename(titleEl, c) {
   titleEl.focus();
 }
 
-async function deleteResponse(turnEl, modelId, boxEl) {
-  const ti = turnEl.dataset.turnIndex;
-  if (currentId && ti != null) {
-    await fetch(`/conversations/${currentId}/turns/${ti}/responses/${modelId}`, { method: 'DELETE' });
+// Delete a group (prompt expansion) and the whole subtree branched from it.
+async function deleteGroup(groupId) {
+  if (convModel.id) {
+    await fetch(`/conversations/${convModel.id}/groups/${groupId}`, { method: 'DELETE' });
   }
-  boxEl.remove();
-}
-
-async function deleteTurn(turnEl) {
-  const ti = turnEl.dataset.turnIndex;
-  if (currentId && ti != null) {
-    await fetch(`/conversations/${currentId}/turns/${ti}`, { method: 'DELETE' });
-    openConversation(currentId); // turn indices shift, re-render from server
-    return;
-  }
-  turnEl.remove();
+  const removed = new Set();
+  const collect = (gid) => {
+    const g = convModel.groups.find((x) => x.id === gid);
+    if (!g || removed.has(gid)) return;
+    removed.add(gid);
+    const ids = new Set(g.nodes.map((n) => n.id));
+    for (const cg of convModel.groups.filter((x) => x.nodes.some((n) => ids.has(n.parentId)))) collect(cg.id);
+  };
+  collect(groupId);
+  convModel.groups = convModel.groups.filter((g) => !removed.has(g.id));
+  const sel = convModel.selected;
+  if (sel && !(sel.kind === 'group' ? groupOf(sel.id) : findNodeC(sel.id).node)) convModel.selected = null;
+  renderTree();
+  updateSelectionBar();
+  loadSidebar();
 }
 
 async function deleteConversation(id) {
   await fetch('/conversations/' + id, { method: 'DELETE' });
-  if (id === currentId) { currentId = null; stream.innerHTML = ''; updateWelcome(); }
+  if (id === currentId) { currentId = null; resetModel(); renderTree(); updateSelectionBar(); }
   loadSidebar();
 }
 
@@ -1558,11 +1861,12 @@ async function saveSettingsModal() {
 
 // ----- wiring -----
 const ta = document.getElementById('prompt');
-ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; });
+ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; clearComposerNotice(); });
 ta.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); }
 });
 document.getElementById('send').addEventListener('click', send);
+document.getElementById('expandAllToggle').addEventListener('change', (e) => { expandAll = e.target.checked; renderTree(); });
 document.getElementById('newchat').addEventListener('click', newChat);
 document.getElementById('tempchat').addEventListener('click', toggleTemporary);
 document.getElementById('helpBtn').addEventListener('click', () => document.getElementById('helpModal').classList.add('show'));

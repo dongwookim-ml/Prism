@@ -26,24 +26,106 @@ function listConvs() {
   return fs.readdirSync(DATA_DIR)
     .filter((f) => f.endsWith('.json'))
     .map((f) => loadConv(path.basename(f, '.json')))
-    .filter((c) => c && c.id && Array.isArray(c.turns)) // ignore non-conversation files (e.g. settings.json)
+    .filter((c) => c && c.id && (Array.isArray(c.groups) || Array.isArray(c.turns))) // ignore non-conversation files
     .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt }))
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 }
 
-// Append one completed turn (prompt + each model's full response), creating the
-// conversation if it doesn't exist yet. Returns the conversation.
-function saveTurn(id, prompt, responses, attachments) {
-  const now = new Date().toISOString();
-  let conv = id ? loadConv(id) : null;
-  if (!conv) {
-    const title = prompt.split('\n')[0].slice(0, 60) || (attachments?.length ? attachments.join(', ').slice(0, 60) : 'Untitled');
-    conv = { id: crypto.randomUUID(), title, createdAt: now, turns: [] };
+// ---- tree-of-thoughts model ----
+// A conversation is a forest of response nodes. Each node has its own parentId
+// (the answer it continues from). A "group" is one prompt expansion: one node
+// per answering model, created together. Branching from a single answer makes
+// all the new nodes share that parent (convergent); continuing from a prompt (or
+// the last group) makes each new node continue its own model's answer (parallel
+// lineages). A node's context is the prompt+answer chain from it up to a root.
+const SUMMARY_MARKER = '<<<SUMMARY>>>';
+
+// First sentence (or ~140 chars) of a text, used as a fallback card summary.
+function firstSentence(s) {
+  const t = String(s || '').replace(/\x1e/g, ' ').replace(/\s+/g, ' ').trim();
+  const m = t.match(/^.*?[.!?。！？](\s|$)/);
+  let out = (m ? m[0] : t).trim();
+  if (out.length > 140) out = out.slice(0, 140).trim() + '…';
+  return out;
+}
+
+// Each model appends its own one-sentence summary after a marker; split it out.
+function parseSummary(text) {
+  const t = String(text || '');
+  const i = t.lastIndexOf(SUMMARY_MARKER);
+  if (i < 0) return { body: t.trim(), summary: firstSentence(t) };
+  const body = t.slice(0, i).trim();
+  let summary = t.slice(i + SUMMARY_MARKER.length).trim().split('\n')[0].trim();
+  if (!summary) summary = firstSentence(body);
+  return { body, summary };
+}
+
+// Normalize any stored conversation into the current node tree (v3). Each node
+// carries its own parentId (the response it continues from), so a group's three
+// answers can either share one parent (branch from a single answer) or each
+// continue their own model's thread (three parallel lineages). Handles:
+//   v1 (linear `turns`)         -> per-model lineage, preserving each model's own thread
+//   v2 (`group.parentNodeId`)   -> every node inherits that single shared parent
+// Stable ids so selection survives reloads. Non-destructive: the file is only
+// rewritten in this format when the conversation is next edited.
+function normalizeConv(conv) {
+  if (!conv) return null;
+  let selected = conv.selected || null;
+  if (typeof selected === 'string') selected = { kind: 'node', id: selected };
+
+  if (Array.isArray(conv.groups)) {
+    for (const g of conv.groups) {
+      for (const n of g.nodes) if (n.parentId === undefined) n.parentId = g.parentNodeId || null; // v2 -> per-node
+      delete g.parentNodeId;
+    }
+    conv.version = 3; conv.selected = selected;
+    return conv;
   }
-  conv.turns.push({ prompt, attachments, responses, ts: now });
-  conv.updatedAt = now;
-  saveConv(conv);
-  return conv;
+
+  const groups = [];
+  const lastByModel = {}; // model -> its most recent node id, for per-model lineage
+  let lastAny = null;
+  (conv.turns || []).forEach((t, i) => {
+    const g = {
+      id: `${conv.id}-g${i}`, prompt: t.prompt || '', attachments: t.attachments || [],
+      ts: t.ts, nodes: [], synthesis: t.synthesis, critiques: t.critiques, critiquesOf: t.critiquesOf,
+    };
+    const resp = t.responses || {};
+    for (const model of Object.keys(resp)) {
+      const text = String(resp[model] || '');
+      if (!text.trim()) continue;
+      const { body, summary } = parseSummary(text);
+      const id = `${conv.id}-n${i}-${model}`;
+      g.nodes.push({ id, model, text: body, summary, ts: t.ts, parentId: lastByModel[model] || lastAny || null });
+    }
+    for (const n of g.nodes) { lastByModel[n.model] = n.id; lastAny = n.id; }
+    groups.push(g);
+  });
+  return {
+    id: conv.id, title: conv.title, createdAt: conv.createdAt, updatedAt: conv.updatedAt,
+    version: 3, selected, groups,
+  };
+}
+
+const findNode = (conv, id) => {
+  for (const g of (conv.groups || [])) for (const n of g.nodes) if (n.id === id) return { group: g, node: n };
+  return {};
+};
+const findGroup = (conv, id) => (conv.groups || []).find((g) => g.id === id);
+
+// Format an explicit context chain (root..parent of {prompt,text}) ahead of the
+// current prompt. The client builds the chain from its in-memory tree, so this
+// works identically for saved and temporary chats. All models in a group get the
+// same context (the selected line of thought).
+function formatContext(context, current) {
+  const clean = (s) => String(s || '').replace(/\x1e/g, '\n').trim();
+  const hist = (context || [])
+    .filter((e) => clean(e.text))
+    .slice(-12)
+    .map((e) => `User: ${e.prompt || '[attached files]'}\nAssistant: ${clean(e.text)}`)
+    .join('\n\n');
+  if (!hist) return current;
+  return `Earlier in this conversation:\n\n${hist}\n\nReply to the user's new message below, using that context.\n\nUser: ${current}`;
 }
 
 // ---- settings (skill selection) ----
@@ -215,24 +297,6 @@ const codexSkillPreamble = (skills) => {
   return `Codex skills enabled in Prism for this request:\n${list}\nUse only these skills, and only when the task matches.\n\n`;
 };
 
-// Build a per-model prompt that prepends that model's own prior turns, so
-// follow-ups carry context. Each pane is its own conversation thread.
-function withHistory(priorTurns, id, current) {
-  const clean = (s) => String(s || '').replace(//g, '\n').trim();
-  const hist = priorTurns
-    .filter((t) => t.responses && Object.values(t.responses).some((v) => clean(v)))
-    .slice(-12) // bound prompt growth on long chats
-    .map((t) => {
-      // This model's own answer if it has one, else another model's (so it still
-      // sees what was discussed when an earlier turn targeted a specific model).
-      const ans = clean(t.responses[id]) || clean(Object.values(t.responses).find((v) => clean(v)));
-      return `User: ${t.prompt || '[attached files]'}\nAssistant: ${ans}`;
-    })
-    .join('\n\n');
-  if (!hist) return current;
-  return `Earlier in this conversation:\n\n${hist}\n\nReply to the user's new message below, using that context.\n\nUser: ${current}`;
-}
-
 const app = express();
 app.use(express.json({ limit: '30mb' })); // room for base64-encoded file uploads
 app.use(express.static(path.join(__dirname, 'public')));
@@ -244,7 +308,7 @@ app.get('/models', (_req, res) => {
 app.get('/conversations', (_req, res) => res.json(listConvs()));
 
 app.get('/conversations/:id', (req, res) => {
-  const c = loadConv(req.params.id);
+  const c = normalizeConv(loadConv(req.params.id));
   if (!c) return res.status(404).json({ error: 'not found' });
   res.json(c);
 });
@@ -254,24 +318,47 @@ app.delete('/conversations/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/conversations/:id/turns/:turnIndex', (req, res) => {
-  const c = loadConv(req.params.id);
-  const ti = Number(req.params.turnIndex);
-  if (!c || !Number.isInteger(ti) || !c.turns[ti]) return res.status(404).json({ error: 'not found' });
-  c.turns.splice(ti, 1);
+// Delete a group (a prompt expansion) and the whole subtree branched from any of
+// its nodes. A group is a child if any of its nodes' parentId points at a node
+// being removed. Selection is cleared if it pointed into the removed subtree.
+app.delete('/conversations/:id/groups/:groupId', (req, res) => {
+  const c = normalizeConv(loadConv(req.params.id));
+  if (!c) return res.status(404).json({ error: 'not found' });
+  const removed = new Set();
+  const collect = (gid) => {
+    const g = findGroup(c, gid);
+    if (!g || removed.has(gid)) return;
+    removed.add(gid);
+    const ids = new Set(g.nodes.map((n) => n.id));
+    for (const child of c.groups.filter((x) => x.nodes.some((n) => ids.has(n.parentId)))) collect(child.id);
+  };
+  collect(req.params.groupId);
+  c.groups = c.groups.filter((g) => !removed.has(g.id));
+  if (c.selected) {
+    const ok = c.selected.kind === 'group' ? findGroup(c, c.selected.id) : findNode(c, c.selected.id).node;
+    if (!ok) c.selected = null;
+  }
   c.updatedAt = new Date().toISOString();
   saveConv(c);
   res.json({ ok: true });
 });
 
-app.delete('/conversations/:id/turns/:turnIndex/responses/:model', (req, res) => {
-  const c = loadConv(req.params.id);
-  const ti = Number(req.params.turnIndex);
-  if (!c || !c.turns[ti]) return res.status(404).json({ error: 'not found' });
-  if (c.turns[ti].responses) delete c.turns[ti].responses[req.params.model];
+// Set (or clear, with empty body) the current selection: a response node (the
+// next prompt branches all models from that one answer) or a prompt/group (each
+// model continues its own answer in that group). null = continue from the last
+// group, per model.
+app.post('/conversations/:id/select', (req, res) => {
+  const c = normalizeConv(loadConv(req.params.id));
+  if (!c) return res.status(404).json({ error: 'not found' });
+  const { kind, id } = req.body || {};
+  let sel = null;
+  if (kind === 'node' && findNode(c, id).node) sel = { kind, id };
+  else if (kind === 'group' && findGroup(c, id)) sel = { kind, id };
+  else if (kind) return res.status(400).json({ error: 'no such selection' });
+  c.selected = sel;
   c.updatedAt = new Date().toISOString();
   saveConv(c);
-  res.json({ ok: true });
+  res.json({ ok: true, selected: c.selected });
 });
 
 app.post('/conversations/:id/rename', (req, res) => {
@@ -395,7 +482,7 @@ app.post('/criticize', (req, res) => {
   const prompt = (req.body?.prompt || '').toString();
   const responses = (req.body?.responses && typeof req.body.responses === 'object') ? req.body.responses : {};
   const conversationId = req.body?.conversationId;
-  const turnIndex = Number.isInteger(req.body?.turnIndex) ? req.body.turnIndex : null;
+  const groupId = req.body?.groupId || null;
   const clean = (s) => String(s || '').replace(//g, '\n').trim();
   const answered = Object.keys(responses).filter((id) => MODELS[id] && clean(responses[id]));
   if (answered.length < 2) return res.status(400).json({ error: 'need at least two responses' });
@@ -441,12 +528,13 @@ app.post('/criticize', (req, res) => {
       if (code && code !== 0) emit({ type: 'chunk', model: id, text: `\n[${id} exited with code ${code}]${err.trim() ? '\n' + err.trim() : ''}` });
       emit({ type: 'done', model: id });
       if (--remaining === 0) {
-        if (conversationId && turnIndex != null) {
-          const c = loadConv(conversationId);
-          if (c && c.turns[turnIndex]) {
-            const t = c.turns[turnIndex];
-            if (target) { t.critiquesOf = t.critiquesOf || {}; t.critiquesOf[target] = critiques; }
-            else t.critiques = critiques;
+        if (conversationId && groupId) {
+          const c = normalizeConv(loadConv(conversationId));
+          const g = c && findGroup(c, groupId);
+          if (g) {
+            if (target) { g.critiquesOf = g.critiquesOf || {}; g.critiquesOf[target] = critiques; }
+            else g.critiques = critiques;
+            c.updatedAt = new Date().toISOString();
             saveConv(c);
           }
         }
@@ -467,7 +555,7 @@ app.post('/compare', (req, res) => {
     .map(([id, t]) => `### ${labels[id] || id}\n${t}`).join('\n\n');
   if (!parts) return res.status(400).json({ error: 'no responses' });
   const conversationId = req.body?.conversationId;
-  const turnIndex = Number.isInteger(req.body?.turnIndex) ? req.body.turnIndex : null;
+  const groupId = req.body?.groupId || null;
 
   const cmpPrompt = `Three AI assistants answered the same question. Compare them at a semantic level, not word by word.\n\nQuestion:\n${prompt || '(inferred from the answers)'}\n\nAnswers:\n${parts}\n\nOutput ONLY this JSON between <<<R>>> and <<</R>>> tags, with string values in the same language as the answers:\n{"consensus":["point all or most agree on", ...],"differences":[{"topic":"short topic","positions":[{"model":"claude|gemini|codex","stance":"what this model says"}]}],"unique":[{"model":"claude|gemini|codex","point":"point only this model raised"}]}\nKeep each string short. Omit unique if none. Only include models that actually answered.`;
   const child = spawn('claude', ['-p', cmpPrompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
@@ -486,10 +574,11 @@ app.post('/compare', (req, res) => {
     }
     const tagged = result.match(/<<<R>>>([\s\S]*?)<<<\/R>>>/);
     const synthesis = (tagged ? tagged[1] : result).trim();
-    // Persist the synthesis on its turn so it survives reloads.
-    if (conversationId && turnIndex != null) {
-      const c = loadConv(conversationId);
-      if (c && c.turns[turnIndex]) { c.turns[turnIndex].synthesis = synthesis; saveConv(c); }
+    // Persist the synthesis on its group so it survives reloads.
+    if (conversationId && groupId) {
+      const c = normalizeConv(loadConv(conversationId));
+      const g = c && findGroup(c, groupId);
+      if (g) { g.synthesis = synthesis; c.updatedAt = new Date().toISOString(); saveConv(c); }
     }
     res.json({ text: synthesis });
   });
@@ -499,6 +588,11 @@ app.post('/compare', (req, res) => {
 app.post('/ask', (req, res) => {
   const prompt = (req.body?.prompt || '').toString().trim();
   const conversationId = req.body?.conversationId || null;
+  // Per-model parent node + context chain, built by the client. A convergent
+  // branch repeats the same parent/context for every model; a parallel branch
+  // gives each model its own. Missing => null parent, empty context.
+  const nodeParents = (req.body?.nodeParents && typeof req.body.nodeParents === 'object') ? req.body.nodeParents : {};
+  const contexts = (req.body?.contexts && typeof req.body.contexts === 'object') ? req.body.contexts : {};
   const temporary = !!req.body?.temporary; // ephemeral chat: never saved to disk
   const files = Array.isArray(req.body?.files) ? req.body.files : [];
   if (!prompt && !files.length) return res.status(400).json({ error: 'empty prompt' });
@@ -521,6 +615,8 @@ app.post('/ask', (req, res) => {
   }
   // Each model builds its own file-aware prompt from `attachments` (see MODELS).
   const basePrompt = prompt || (files.length ? 'Please review the attached file(s).' : '');
+  // Ask each model to end with a one-sentence summary used as its tree card.
+  const summarized = `${basePrompt}\n\nAfter your full answer, on a new final line output exactly "${SUMMARY_MARKER}" followed by one concise sentence (in the same language as your answer) that summarizes your answer. Use that marker only once, at the very end.`;
 
   // Apply app-scoped Claude/Codex skill selections.
   const skillSettings = loadSettings().skills || {};
@@ -530,9 +626,6 @@ app.post('/ask', (req, res) => {
   const enabledCodex = skillSettings.codex
     ? allCodexSkills.filter((s) => skillSettings.codex.includes(s.name))
     : allCodexSkills;
-
-  // Prior turns of this conversation become per-model context (none for new/temporary chats).
-  const priorTurns = (!temporary && conversationId) ? (loadConv(conversationId)?.turns || []) : [];
 
   // Per-service base model override (empty => CLI default).
   const serviceModels = loadSettings().models || {};
@@ -550,24 +643,36 @@ app.post('/ask', (req, res) => {
   const requested = Array.isArray(req.body?.models) ? req.body.models.filter((id) => MODELS[id]) : [];
   const defaultModels = (loadSettings().defaultModels || []).filter((id) => MODELS[id]);
   const ids = requested.length ? requested : (defaultModels.length ? defaultModels : Object.keys(MODELS));
-  const collected = Object.fromEntries(ids.map((id) => [id, ''])); // full text per model, for saving
+  const collected = Object.fromEntries(ids.map((id) => [id, ''])); // full text per model
   const emitChunk = (id, text) => { collected[id] += text; emit({ type: 'chunk', model: id, text }); };
   let remaining = ids.length;
   const children = [];
 
-  // Persist the turn up front (responses empty for now) so the conversation
-  // appears in the sidebar the moment you hit send, not only after all three
-  // models finish. `collected` is stored by reference, so re-saving on
-  // completion captures the streamed text. Temporary chats are never saved.
-  let conv = null;
+  // Append a new group (one node per model) to the conversation tree up front so
+  // it appears immediately; node text is filled in on completion. The node
+  // objects are held by reference, so re-saving captures the parsed answers.
+  // Temporary chats are never persisted (the client holds their tree in memory).
+  const now = new Date().toISOString();
+  const groupId = crypto.randomUUID();
+  const nodeIds = Object.fromEntries(ids.map((id) => [id, crypto.randomUUID()]));
+  let conv = null, group = null;
   if (!temporary) {
-    conv = saveTurn(conversationId, prompt, collected, attachments);
-    emit({ type: 'saved', conversationId: conv.id, title: conv.title, turnIndex: conv.turns.length - 1 });
+    conv = (conversationId && normalizeConv(loadConv(conversationId))) || null;
+    if (!conv) {
+      const title = basePrompt.split('\n')[0].slice(0, 60) || (attachments.length ? attachments.join(', ').slice(0, 60) : 'Untitled');
+      conv = { id: crypto.randomUUID(), title, createdAt: now, version: 3, selected: null, groups: [] };
+    }
+    group = { id: groupId, prompt, attachments, ts: now,
+      nodes: ids.map((id) => ({ id: nodeIds[id], model: id, text: '', summary: '', ts: now, parentId: nodeParents[id] || null })) };
+    conv.groups.push(group);
+    conv.updatedAt = now;
+    saveConv(conv);
+    emit({ type: 'saved', conversationId: conv.id, title: conv.title, groupId, nodes: nodeIds });
   }
 
   for (const id of ids) {
     const cfg = MODELS[id];
-    const child = spawn(cfg.cmd, cfg.args(ciPreamble + withHistory(priorTurns, id, basePrompt), {
+    const child = spawn(cfg.cmd, cfg.args(ciPreamble + formatContext(Array.isArray(contexts[id]) ? contexts[id] : [], summarized), {
       images,
       attachments,
       disabledSkills,
@@ -619,9 +724,12 @@ app.post('/ask', (req, res) => {
         const detail = err.trim() ? `\n${err.trim()}` : '';
         emitChunk(id, `\n[${id} exited with code ${code}]${detail}`);
       }
-      emit({ type: 'done', model: id });
+      // Split the trailing one-sentence summary off the answer for the tree card.
+      const { body, summary } = parseSummary(collected[id]);
+      if (group) { const n = group.nodes.find((x) => x.model === id); if (n) { n.text = body; n.summary = summary; } }
+      emit({ type: 'done', model: id, body, summary });
       if (--remaining === 0) {
-        if (conv) { conv.updatedAt = new Date().toISOString(); saveConv(conv); } // persist completed responses
+        if (conv) { conv.updatedAt = new Date().toISOString(); saveConv(conv); } // persist completed answers
         res.end();
       }
     });
