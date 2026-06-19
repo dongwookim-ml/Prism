@@ -5,7 +5,7 @@ One prompt refracted into three answers, side by side. A single web page fans yo
 so it runs on your existing **subscriptions** instead of per-token API billing.
 
 > **Built on CLIs, not APIs.** Prism does not call any model API and stores no API
-> keys. It spawns the official command-line tools (`claude`, `gemini`, `codex`),
+> keys. It spawns the official command-line tools (`claude`, `agy`, `codex`),
 > which authenticate with your existing subscription logins (Claude Pro/Max,
 > Google account, ChatGPT). That means zero per-token cost, but also: the three
 > CLIs must be installed and logged in on the machine running Prism, and the
@@ -19,7 +19,7 @@ Browser (3 panes + 1 prompt)
    |  POST /ask  -> streamed NDJSON back
 Node/Express
    |- spawn  claude -p ... --output-format stream-json   -> pane 1 (live tokens)
-   |- spawn  gemini --skip-trust -p ...                  -> pane 2
+   |- spawn  agy --print ... --model "Gemini …"          -> pane 2 (Antigravity)
    |- spawn  codex exec --json ...                       -> pane 3
 ```
 
@@ -57,9 +57,9 @@ Node/Express
   explore a different branch, so the conversation grows into a tree.
 - A node or prompt that **already has follow-ups** can't be branched again; delete
   its descendants first (× on the follow-up prompt) to ask a different question there.
-- **⤢** on a card opens/closes it without selecting; **Expand all answers** opens
-  every card. New answers open automatically while they stream. The layout
-  re-flows around the larger nodes.
+- **⤢** on a card opens/closes it without selecting; **Expand all** / **Collapse
+  all** open or close every card. New answers open automatically while they
+  stream. The layout re-flows around the larger nodes.
 
 **Comparing the models** (prompt node, on hover)
 - **Compare**: a semantic synthesis of that prompt's answers (consensus,
@@ -82,7 +82,7 @@ Node/Express
 
 **Settings & Skills**
 - Default models, base model per service (`opus`/`sonnet`/`haiku` or custom),
-  font family/size.
+  font family/size, and **night mode** (dark theme).
 - Personalization: standing instructions (like custom instructions / CLAUDE.md)
   sent to every model with every prompt.
 - Enable/disable each CLI's skills (Claude, Gemini, Codex) from the Skills
@@ -97,10 +97,14 @@ The three CLIs must be installed and **logged in** (each uses its own subscripti
 | Pane    | CLI        | Install                              | Log in            |
 |---------|------------|--------------------------------------|-------------------|
 | Claude  | `claude`   | Claude Code                          | already signed in |
-| Gemini  | `gemini`   | `npm i -g @google/gemini-cli`        | `gemini` (OAuth)  |
+| Gemini  | `agy`      | Antigravity (antigravity.google)     | via Antigravity   |
 | ChatGPT | `codex`    | `brew install codex` / npm           | `codex login`     |
 
-Check: `claude --version`, `gemini --version`, `codex --version` should all print.
+Check: `claude --version`, `agy --version`, `codex --version` should all print.
+
+> Note: Google ended the free Gemini CLI tier for individuals, so the Gemini
+> pane now runs through **Antigravity** (`agy`), which serves Gemini models. Pick
+> the exact model in Settings → base model (default: Gemini 3.1 Pro High).
 
 ## Run
 
@@ -139,7 +143,7 @@ After editing `server.js`, restart it with:
   projects. Each model's `parse()` pulls plain text out of one stdout line:
   - **Claude**: `stream-json` deltas (`stream_event -> content_block_delta -> text_delta`)
   - **Codex**: `--json` events (`item.completed` where `item.type === "agent_message"`)
-  - **Gemini**: plain stdout, forwarded as-is
+  - **Gemini**: `agy --print` (Antigravity) plain stdout, forwarded as-is
 - The browser streams the response as newline-delimited JSON and appends each chunk to
   its pane.
 

@@ -10,7 +10,7 @@
 <script>
   window.MathJax = {
     tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
-    svg: { fontCache: 'global' },
+    svg: { fontCache: 'local' }, // local (not global): glyph defs live in each container, so rebuilding the DOM can't break shared <use> refs and blow equations up
     startup: { typeset: false },
   };
 </script>
@@ -48,11 +48,11 @@
   .brand h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
   .brand .tag { font-size: 12px; color: var(--muted); }
   .newchat {
-    margin: 6px 12px 10px; padding: 10px 14px; border: 1px solid #dcdce4; border-radius: 10px;
+    margin: 4px 12px; padding: 10px 14px; border: 1px solid #dcdce4; border-radius: 10px;
     background: #fff; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; text-align: left;
   }
+  .newchat:first-of-type { margin-top: 6px; }
   .newchat:hover { background: #f3f3f7; }
-  .tempbtn { margin-top: 0; }
   .tempbtn.active { background: #efe9dd; border-color: #d8ccae; color: #6b5b2e; }
   .temp-banner {
     display: none; text-align: center; padding: 8px 12px; font-size: 13px;
@@ -215,7 +215,15 @@
   }
   .assistant pre code { background: none; padding: 0; color: inherit; }
   .assistant blockquote { margin: 0 0 .85em; padding: .2em 1em; border-left: 3px solid var(--line); color: var(--muted); }
-  .table-wrap { overflow-x: auto; margin: 0 0 .9em; }
+  .table-wrap { overflow-x: auto; margin: 0 0 .9em; position: relative; }
+  .table-exp { position: absolute; top: 4px; right: 4px; border: 1px solid var(--line); background: var(--card); color: #8a8a95; border-radius: 6px; padding: 2px; cursor: pointer; display: flex; opacity: .85; }
+  .table-exp svg { width: 14px; height: 14px; }
+  .table-exp:hover { color: #444; opacity: 1; }
+  .table-modal { width: min(1100px, 94vw); max-height: 88vh; }
+  .table-modal-body { overflow: auto; padding: 18px 24px 24px; }
+  .table-modal-body table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  .table-modal-body th, .table-modal-body td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  .table-modal-body th { font-weight: 700; }
   .assistant table { border-collapse: collapse; margin: 0; width: auto; min-width: 100%; font-size: .9em; }
   .assistant th, .assistant td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; white-space: nowrap; }
   .assistant hr { border: none; border-top: 1px solid var(--line); margin: 1.2em 0; }
@@ -248,7 +256,8 @@
   .tree-toolbar { display: none; align-items: center; gap: 14px; padding: 7px 22px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.5); font-size: 12px; color: var(--muted); }
   .tree-toolbar.show { display: flex; }
   .tree-toolbar .tt-hint { flex: 1; }
-  .tree-toolbar .tt-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; color: #555; font-weight: 600; }
+  .tree-toolbar .tt-btn { border: 1px solid var(--line); background: var(--card); color: #4a4a55; font: inherit; font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 8px; cursor: pointer; }
+  .tree-toolbar .tt-btn:hover { background: #f3f3f7; }
 
   /* The graph: nodes absolutely positioned over an SVG edge layer. */
   .tree-layer { position: relative; margin: 6px auto 0; }
@@ -399,6 +408,70 @@
     background: #fff; border: 2px dashed #9aa0c0; border-radius: 18px; padding: 36px 54px;
     font-size: 18px; font-weight: 600; color: #4a4a66; box-shadow: 0 12px 40px rgba(20,20,40,0.18);
   }
+
+  /* ===== Night mode ===== */
+  body.dark {
+    --card: #1e1e26;
+    --ink: #e9e9ef;
+    --muted: #93939f;
+    --line: #34343f;
+    background: linear-gradient(180deg, #15151b 0%, #0f0f14 100%);
+  }
+  /* sidebar + chat list */
+  body.dark .sidebar { background: rgba(26,26,34,0.6); }
+  body.dark .newchat, body.dark .settings-btn { background: #24242c; color: #d6d6df; }
+  body.dark .newchat:hover, body.dark .settings-btn:hover { background: #2d2d38; }
+  body.dark .conv-item { color: #c8c8d2; }
+  body.dark .conv-item:hover { background: #26262f; }
+  body.dark .conv-item.active { background: #31313d; }
+  body.dark .conv-item .del, body.dark .conv-item .ren { color: #76767f; }
+  body.dark .conv-item .del:hover, body.dark .conv-item .ren:hover { background: #3a3a46; color: #ddd; }
+  body.dark .conv-item .title.editing { background: #2a2a34; outline-color: #4a4a58; }
+  body.dark .conv-list .empty { color: #6a6a75; }
+  /* banners + toolbar */
+  body.dark .temp-banner { background: #2a2614; color: #d8c98a; border-color: #3a3520; }
+  body.dark .update-banner { background: #15233a; color: #a9c6ef; border-color: #264066; }
+  body.dark .tree-toolbar { background: rgba(26,26,34,0.5); }
+  /* prompt bubbles + send button (were the light --ink) */
+  body.dark .msg.user, body.dark .tprompt, body.dark .branch-prompt .bp-text { background: #30303c; color: #edeef3; }
+  body.dark button#send { background: #4a4ab0; color: #fff; }
+  body.dark .btn-primary { background: #4a4ab0; color: #fff; }
+  /* answers / cards */
+  body.dark .response-box, body.dark .tnode.expanded { background: #1e1e26; }
+  body.dark .tnode { background: #25252f; }
+  body.dark .assistant { color: #d4d4dd; }
+  body.dark .assistant.tsummary { color: #bdbdc8; }
+  body.dark .assistant code { background: #2a2a34; }
+  body.dark .assistant blockquote { color: var(--muted); }
+  body.dark .tedge { stroke: #45454f; }
+  body.dark .codex-meta { color: var(--muted); }
+  /* composer + inputs */
+  body.dark .composer-inner { background: #1e1e26; border-color: #34343f; }
+  body.dark .composer-inner:focus-within { border-color: #50505e; }
+  body.dark .chip { background: #24242c; border-color: #34343f; }
+  body.dark .attach:hover, body.dark .copy-btn:hover, body.dark .expand-btn:hover, body.dark .choose-btn:hover { background: #2d2d38; color: #cfcfd8; }
+  body.dark .humanize-btn { background: #24242c; color: #cfcfd8; border-color: #34343f; }
+  body.dark .humanize-btn:hover { background: #2d2d38; }
+  body.dark .font-select, body.dark .model-input, body.dark .ci-textarea { background: #24242c; color: #e2e2ea; border-color: #34343f; }
+  body.dark .btn-secondary { background: #24242c; color: #e2e2ea; border-color: #34343f; }
+  body.dark .compare-btn, body.dark .tree-toolbar .tt-btn { background: #24242c; color: #d6d6df; border-color: #34343f; }
+  body.dark .compare-btn:hover, body.dark .tree-toolbar .tt-btn:hover { background: #2d2d38; }
+  body.dark .table-exp:hover { color: #ddd; }
+  /* modals */
+  body.dark .modal { background: #1e1e26; }
+  body.dark .modal-close { color: #8a8a95; }
+  body.dark .welcome { background: #1e1e26; border-color: #34343f; }
+  body.dark .help-body li { color: #c9c9d4; }
+  body.dark .skill-name { color: #d6d6df; }
+  /* synthesis / critique / selection / notice panels */
+  body.dark .synthesis { background: #211f2e; border-color: #38314f; }
+  body.dark .syn-diff { background: #1c1c24; }
+  body.dark .selection-bar { background: #211f2e; border-color: #38314f; color: #c7c1da; }
+  body.dark .selection-bar .sel-sum { color: #a99fce; }
+  body.dark .composer-notice { background: #33222a; border-color: #5a3a44; color: #eab6b6; }
+  body.dark .humanized-body, body.dark .critique-body { color: #cfcfd8; }
+  /* drop overlay */
+  body.dark #dropOverlay .box { background: #1e1e26; color: #cfcfd8; border-color: #50506a; }
 </style>
 </head>
 <body>
@@ -431,7 +504,8 @@
       <div class="update-banner" id="updateBanner"></div>
       <div class="tree-toolbar" id="treeToolbar">
         <span class="tt-hint">Click an answer to open it and branch from it; click a prompt to open all its answers.</span>
-        <label class="tt-toggle"><input type="checkbox" id="expandAllToggle"> Expand all answers</label>
+        <button class="tt-btn" id="expandAllBtn">Expand all</button>
+        <button class="tt-btn" id="collapseAllBtn">Collapse all</button>
       </div>
       <div class="conversation" id="conv"><div class="welcome" id="welcome"></div><div class="stream" id="stream"></div></div>
       <div class="composer">
@@ -492,7 +566,7 @@
             <li>With <b>nothing selected</b>, a new prompt continues from the <b>last answers</b> the same way (three parallel lines, each model from its own).</li>
             <li>Other answers stay. Select any answer or prompt later and ask again to explore a different branch.</li>
             <li>A node or prompt that <b>already has follow-ups</b> can't be branched again. Delete its follow-ups first (× on the follow-up prompt) to ask a different question there.</li>
-            <li><b>⤢</b> on a card opens/closes it without selecting. <b>Expand all answers</b> (top right) opens every card. New answers open automatically while they stream.</li>
+            <li><b>⤢</b> on a card opens/closes it without selecting. <b>Expand all</b> / <b>Collapse all</b> (top right) open or close every card. New answers open automatically while they stream.</li>
           </ul>
         </div>
         <div class="skill-section">
@@ -510,7 +584,7 @@
             <li><b>New chat</b> (standard) / <b>New tree chat</b> start a fresh chat in that mode; <b>Temporary chat</b> is never saved.</li>
             <li>Hover a chat: pencil renames (or double-click the title), × deletes.</li>
             <li><b>Skills</b>: enable/disable each CLI's skills (ⓘ shows descriptions).</li>
-            <li><b>Settings</b>: appearance (font, size), humanize-all toggle, default models, base model per service, and personalization (standing instructions sent with every prompt).</li>
+            <li><b>Settings</b>: appearance (font, size, night mode), humanize-all toggle, default models, base model per service, and personalization (standing instructions sent with every prompt).</li>
           </ul>
         </div>
       </div>
@@ -611,12 +685,42 @@ function renderInto(el, text, typeset = true) {
   } else {
     el.innerHTML = mdMath((text || '').split('').join('\n\n'));
   }
+  addTableExpanders(el);
   // Only typeset settled text. Typesetting partial LaTeX on every stream chunk
   // produces broken, oversized renders, so streaming passes typeset=false.
   if (typeset && /[\\$]/.test(text || '') && window.MathJax?.typesetPromise) {
     if (MathJax.typesetClear) MathJax.typesetClear([el]);
     MathJax.typesetPromise([el]).catch(() => {});
   }
+}
+
+const TABLE_EXP_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+// Add a corner button to each table that opens it in a large modal.
+function addTableExpanders(el) {
+  el.querySelectorAll('.table-wrap').forEach((w) => {
+    if (w.querySelector(':scope > .table-exp')) return;
+    const tbl = w.querySelector('table');
+    if (!tbl) return;
+    const b = document.createElement('button');
+    b.className = 'table-exp'; b.title = 'Open table in a larger view'; b.innerHTML = TABLE_EXP_SVG;
+    b.onclick = (e) => { e.stopPropagation(); openTableModal(tbl); };
+    w.appendChild(b);
+  });
+}
+function openTableModal(tableEl) {
+  let ov = document.getElementById('tableModal');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'tableModal'; ov.className = 'modal-overlay';
+    ov.innerHTML = '<div class="modal table-modal"><div class="modal-head"><h2>Table</h2><button class="modal-close">&times;</button></div><div class="modal-body table-modal-body"></div></div>';
+    document.body.appendChild(ov);
+    ov.querySelector('.modal-close').onclick = () => ov.classList.remove('show');
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  const body = ov.querySelector('.table-modal-body');
+  body.innerHTML = '';
+  body.appendChild(tableEl.cloneNode(true));
+  ov.classList.add('show');
 }
 const FILE_ICON = '<svg class="fileicon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
 const MAX_FILE = 25 * 1024 * 1024; // 25 MB per file
@@ -644,6 +748,9 @@ function applyFont() {
   document.documentElement.style.setProperty('--read-size', SIZES[s] || SIZES.medium);
 }
 applyFont();
+const nightModeOn = () => localStorage.getItem('prism.theme') === 'dark';
+function applyTheme() { document.body.classList.toggle('dark', nightModeOn()); }
+applyTheme();
 const humanizeDefaultOn = () => localStorage.getItem('prism.humanizeDefault') === '1';
 function applyHumanizeDefault() { document.body.classList.toggle('humanize-auto', humanizeDefaultOn()); }
 applyHumanizeDefault();
@@ -722,12 +829,11 @@ async function checkVersion() {
 // child group. The path from a node to its root is the context its children
 // build on. Cards show a one-sentence summary; "Expand all" shows full answers.
 let convModel = { id: null, mode: 'linear', groups: [], selected: null }; // mode: 'linear'|'tree'; selected: {kind,id}|null
-let expandAll = false;
 let cardSlots = {};        // nodeId -> live streaming slot {raw,done,model,nodeId,el,box}
 let activeByModel = {};    // model -> slot, for the in-flight send
 let currentGroup = null;   // the group being streamed right now
 
-function resetModel(mode = 'linear') { convModel = { id: null, mode, groups: [], selected: null }; expandAll = false; cardSlots = {}; }
+function resetModel(mode = 'linear') { convModel = { id: null, mode, groups: [], selected: null }; cardSlots = {}; }
 const findNodeC = (id) => { for (const g of convModel.groups) for (const n of g.nodes) if (n.id === id) return { group: g, node: n }; return {}; };
 const groupOf = (id) => convModel.groups.find((g) => g.id === id);
 const childNodesOf = (nodeId) => convModel.groups.flatMap((g) => g.nodes).filter((n) => n.parentId === nodeId);
@@ -810,7 +916,7 @@ function promptEl(group) {
 // (white, full answer, all icons). Click opens it and selects it to branch from;
 // click again closes it. The ⤢ icon expands/collapses without selecting.
 function cardEl(node, group) {
-  const expanded = expandAll || node._expanded;
+  const expanded = node._expanded;
   const slot = cardSlots[node.id];
   const streaming = slot && !slot.done;
   const box = document.createElement('div');
@@ -856,8 +962,12 @@ function cardEl(node, group) {
     if (group.critiques && group.critiques[node.model]) renderInto(critiqueEl(box), group.critiques[node.model]);
     if (group.critiquesOf && group.critiquesOf[node.model]) for (const [cid, t] of Object.entries(group.critiquesOf[node.model])) if (t) renderInto(critiquesOfRow(box, cid), t);
   }
-  const onClick = (e) => { if (e.target.closest('button') || (window.getSelection && String(window.getSelection())) ) return; onNodeClick(node); };
-  (expanded ? head : box).addEventListener('click', onClick);
+  // Compact: click anywhere to open. Expanded: click the body to collapse (not
+  // the header, so its buttons are easy to hit). Ignore clicks on buttons, links,
+  // or while selecting text.
+  const onClick = (e) => { if (e.target.closest('button') || e.target.closest('a') || (window.getSelection && String(window.getSelection()))) return; onNodeClick(node); };
+  (expanded ? body : box).addEventListener('click', onClick);
+  if (expanded) body.style.cursor = 'pointer';
   return box;
 }
 
@@ -877,7 +987,6 @@ const HGAP = 22, VGAP = 40, LBL_GAP = 34;
 function renderTree() {
   stream.innerHTML = '';
   document.getElementById('treeToolbar').classList.toggle('show', convModel.groups.length > 0);
-  document.getElementById('expandAllToggle').checked = expandAll;
   if (!convModel.groups.length) { updateWelcome(); return; }
 
   const forest = buildNodeForest();
@@ -1736,7 +1845,7 @@ const setModalTitle = (t) => { document.querySelector('.modal-head h2').textCont
 // Settings modal: Appearance + Default models. No slow /skills fetch.
 const MODEL_OPTIONS = {
   claude: [['', 'Default'], ['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']],
-  gemini: [['', 'Default']],
+  gemini: [['', 'Default (3.1 Pro High)'], ['Gemini 3.1 Pro (High)', '3.1 Pro · High'], ['Gemini 3.1 Pro (Low)', '3.1 Pro · Low'], ['Gemini 3.5 Flash (High)', '3.5 Flash · High'], ['Gemini 3.5 Flash (Medium)', '3.5 Flash · Medium'], ['Gemini 3.5 Flash (Low)', '3.5 Flash · Low']],
   codex: [['', 'Default']],
 };
 
@@ -1785,6 +1894,18 @@ function renderSettingsBody() {
   asec.appendChild(ah);
   asec.appendChild(fontRow('Font', 'prism.font', { system: 'System', serif: 'Serif', mono: 'Mono' }, 'system'));
   asec.appendChild(fontRow('Size', 'prism.size', { small: 'Small', medium: 'Medium', large: 'Large' }, 'medium'));
+  const nrow = document.createElement('label');
+  nrow.className = 'skill-row';
+  nrow.style.alignItems = 'center';
+  const ncb = document.createElement('input');
+  ncb.type = 'checkbox';
+  ncb.checked = nightModeOn();
+  ncb.onchange = () => { localStorage.setItem('prism.theme', ncb.checked ? 'dark' : 'light'); applyTheme(); };
+  const nnm = document.createElement('span');
+  nnm.className = 'skill-name';
+  nnm.textContent = 'Night mode';
+  nrow.append(ncb, nnm);
+  asec.appendChild(nrow);
   const hrow = document.createElement('label');
   hrow.className = 'skill-row';
   hrow.style.alignItems = 'center';
@@ -1989,7 +2110,9 @@ ta.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); }
 });
 document.getElementById('send').addEventListener('click', send);
-document.getElementById('expandAllToggle').addEventListener('change', (e) => { expandAll = e.target.checked; renderTree(); });
+const setAllExpanded = (v) => { for (const g of convModel.groups) for (const n of g.nodes) n._expanded = v; render(); };
+document.getElementById('expandAllBtn').addEventListener('click', () => setAllExpanded(true));
+document.getElementById('collapseAllBtn').addEventListener('click', () => setAllExpanded(false));
 document.getElementById('newchat').addEventListener('click', () => newChat('linear'));
 document.getElementById('newtreechat').addEventListener('click', () => newChat('tree'));
 document.getElementById('tempchat').addEventListener('click', toggleTemporary);

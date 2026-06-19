@@ -49,6 +49,18 @@ function firstSentence(s) {
   return out;
 }
 
+// Turn a CLI's failure output into one concise, actionable line instead of a
+// full stack trace (e.g. Gemini's deprecated-tier auth error).
+function cliErrorHint(id, err) {
+  const e = String(err || '');
+  if (/IneligibleTier|no longer supported|Antigravity|Gemini Code Assist for individuals/i.test(e))
+    return 'Gemini sign-in is no longer supported — Google ended the free Gemini CLI tier (oauth-personal). Re-authenticate the gemini CLI (e.g. a Gemini API key) or turn Gemini off in Settings → Default models.';
+  if (/Error authenticating|not (logged in|authenticated)|requires? (login|authentication)|API key|credential|invalid_grant|\b40[13]\b|unauthor/i.test(e))
+    return `${id} isn't signed in. Log in to its CLI, then retry.`;
+  const line = e.split('\n').map((s) => s.trim()).find((s) => s && !/^Warning:|YOLO mode|Ripgrep|256-color|^An unexpected/i.test(s));
+  return line ? line.slice(0, 200) : '';
+}
+
 // Each model appends its own one-sentence summary after a marker; split it out.
 function parseSummary(text) {
   const t = String(text || '');
@@ -199,15 +211,9 @@ function codexSkills() {
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Gemini's skills via its CLI (name + enabled state, which Gemini persists itself).
-async function geminiSkills() {
-  const { stdout } = await run('gemini', ['skills', 'list', '--all']);
-  const skills = [];
-  const re = /^([A-Za-z0-9._-]+)\s*\[(Enabled|Disabled)\]/gm;
-  let m;
-  while ((m = re.exec(stdout))) skills.push({ name: m[1], description: '', enabled: m[2] === 'Enabled' });
-  return skills;
-}
+// The Gemini pane now runs via Antigravity (agy), which has no per-skill toggle
+// CLI, so this pane exposes no skills.
+async function geminiSkills() { return []; }
 
 // Per-provider skills with their current enabled state for the settings UI.
 async function listAllSkills() {
@@ -219,6 +225,9 @@ async function listAllSkills() {
   const gemini = await geminiSkills();
   return { claude, gemini, codex };
 }
+
+// Default Antigravity model for the Gemini pane (see `agy models`).
+const GEMINI_MODEL = 'Gemini 3.1 Pro (High)';
 
 // Each model: how to invoke its CLI non-interactively, and how to pull plain
 // text out of a single stdout line. parse() returns the text to append, or null
@@ -247,17 +256,15 @@ const MODELS = {
     },
   },
   gemini: {
-    label: 'Gemini (Gemini CLI)',
-    cmd: 'gemini',
-    // --skip-trust: scratch dir isn't a "trusted" workspace. @name pulls each
-    // attached file in as real (multimodal) input, which it needs to view images.
+    // Google ended the free Gemini CLI tier, so this pane runs Antigravity (agy),
+    // which serves Gemini models. --print: one-shot non-interactive answer (plain
+    // text). A --model is REQUIRED (the default-model path hangs headlessly).
+    label: 'Gemini (Antigravity)',
+    cmd: 'agy',
     args: (p, ctx) => {
-      // --yolo: auto-approve tool calls (web fetch etc.); headless mode can't
-      // answer approval prompts, so without it Gemini hangs on tool use.
-      const refs = (ctx.attachments || []).map((n) => '@' + n).join(' ');
-      const a = ['--skip-trust', '--yolo'];
-      if (ctx.model) a.push('-m', ctx.model);
-      a.push('-p', refs ? `${p}\n\n${refs}` : p);
+      const a = ['--print', filePreamble(ctx.attachments) + p,
+        '--model', ctx.model || GEMINI_MODEL, '--dangerously-skip-permissions', '--print-timeout', '4m'];
+      if (ctx.attachments && ctx.attachments.length) a.push('--add-dir', '.'); // expose the upload dir
       return a;
     },
     parse: null, // plain text on stdout: forward as-is
@@ -477,6 +484,7 @@ app.post('/humanize', (req, res) => {
   const child = spawn('claude', ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
     { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '', err = '';
+  child.stdout.setEncoding('utf8'); // decode multibyte (UTF-8) across chunk boundaries
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { err += d; });
   child.on('error', (e) => { if (!res.writableEnded) res.status(500).json({ error: String(e) }); });
@@ -525,6 +533,7 @@ app.post('/criticize', (req, res) => {
     children.push(child);
     let out = '', err = '';
     critiques[id] = '';
+    child.stdout.setEncoding('utf8'); // decode multibyte (UTF-8) across chunk boundaries
     child.stdout.on('data', (d) => {
       out += d.toString();
       let nl;
@@ -543,7 +552,7 @@ app.post('/criticize', (req, res) => {
     child.on('error', (e) => emit({ type: 'chunk', model: id, text: `[cannot start "${cfg.cmd}": ${e.message}]` }));
     child.on('close', (code) => {
       if (!cfg.parse && out.trim()) { critiques[id] += out; emit({ type: 'chunk', model: id, text: out }); }
-      if (code && code !== 0) emit({ type: 'chunk', model: id, text: `\n[${id} exited with code ${code}]${err.trim() ? '\n' + err.trim() : ''}` });
+      if (code && code !== 0) { const hint = cliErrorHint(id, err); emit({ type: 'chunk', model: id, text: `\n[${id} couldn't respond]${hint ? ' ' + hint : ` (exit ${code})`}` }); }
       emit({ type: 'done', model: id });
       if (--remaining === 0) {
         if (conversationId && groupId) {
@@ -579,6 +588,7 @@ app.post('/compare', (req, res) => {
   const child = spawn('claude', ['-p', cmpPrompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
     { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '', err = '';
+  child.stdout.setEncoding('utf8'); // decode multibyte (UTF-8) across chunk boundaries
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { err += d; });
   child.on('error', (e) => { if (!res.writableEnded) res.status(500).json({ error: String(e) }); });
@@ -706,6 +716,7 @@ app.post('/ask', (req, res) => {
     let out = '';
     let err = '';
 
+    child.stdout.setEncoding('utf8'); // decode multibyte (UTF-8) across chunk boundaries
     child.stdout.on('data', (d) => {
       out += d.toString();
       let nl;
@@ -740,8 +751,8 @@ app.post('/ask', (req, res) => {
     child.on('close', (code) => {
       if (!cfg.parse && out.trim()) emitChunk(id, out); // flush tail
       if (code && code !== 0) {
-        const detail = err.trim() ? `\n${err.trim()}` : '';
-        emitChunk(id, `\n[${id} exited with code ${code}]${detail}`);
+        const hint = cliErrorHint(id, err);
+        emitChunk(id, `\n[${id} couldn't respond]${hint ? ' ' + hint : ` (exit ${code})`}`);
       }
       // Split the trailing one-sentence summary off the answer for the tree card.
       const { body, summary } = parseSummary(collected[id]);
