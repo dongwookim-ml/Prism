@@ -267,6 +267,7 @@
   /* Prompt node: the question that produced a group's answers. */
   .tprompt { position: absolute; box-sizing: border-box; max-width: 240px; background: var(--ink); color: #fff; border-radius: 13px; padding: 7px 12px; box-shadow: 0 3px 10px rgba(20,20,40,0.12); }
   .tprompt .tp-text { font-size: 13px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .tprompt.selected .tp-text { -webkit-line-clamp: unset; overflow: visible; display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
   .tprompt .tp-acts { display: none; gap: 4px; margin-top: 6px; }
   .tprompt:hover .tp-acts { display: flex; }
   .tp-btn { border: none; border-radius: 6px; background: rgba(255,255,255,0.16); color: #fff; font: inherit; font-size: 11px; font-weight: 600; padding: 2px 7px; cursor: pointer; }
