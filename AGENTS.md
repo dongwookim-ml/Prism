@@ -20,7 +20,7 @@ node server.js       # Start Prism at http://localhost:3000
 PORT=3001 node server.js
 ```
 
-Before running, ensure `claude`, `gemini`, and `codex` are installed, authenticated, and available on `PATH`. There is no build step or working automated test command yet; `npm test` intentionally exits with an error.
+Before running, ensure `claude`, `agy` (Antigravity, serves the Gemini pane), and `codex` are installed, authenticated, and available on `PATH`. There is no build step or working automated test command yet; `npm test` intentionally exits with an error.
 
 For the documented macOS LaunchAgent setup, restart after server changes with:
 

@@ -85,8 +85,8 @@ Node/Express
   font family/size, and **night mode** (dark theme).
 - Personalization: standing instructions (like custom instructions / CLAUDE.md)
   sent to every model with every prompt.
-- Enable/disable each CLI's skills (Claude, Gemini, Codex) from the Skills
-  panel.
+- Enable/disable each CLI's skills (Claude, Codex) from the Skills panel. (The
+  Gemini pane runs via Antigravity, which has no per-skill toggle.)
 - Update banner when the GitHub repo is ahead of your running version; the
   server auto-restarts when a CLI binary updates.
 
