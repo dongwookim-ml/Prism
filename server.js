@@ -211,9 +211,22 @@ function codexSkills() {
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// The Gemini pane now runs via Antigravity (agy), which has no per-skill toggle
-// CLI, so this pane exposes no skills.
-async function geminiSkills() { return []; }
+// The Gemini pane runs via Antigravity (agy); its "skills" are agy plugins.
+// `agy plugin list` prints one plugin per line (best-effort parse; "[disabled]"
+// marks a disabled one). No plugins => empty.
+async function geminiSkills() {
+  const { stdout } = await run('agy', ['plugin', 'list']);
+  if (/no imported plugins/i.test(stdout)) return [];
+  const skills = [];
+  for (const raw of stdout.split('\n')) {
+    const line = raw.trim();
+    if (!line || /^(imported plugins|plugins?:|usage)/i.test(line)) continue;
+    const m = line.match(/^[-*•]?\s*([A-Za-z0-9._@/-]+)/);
+    if (!m) continue;
+    skills.push({ name: m[1], description: '', enabled: !/disabled/i.test(line) });
+  }
+  return skills;
+}
 
 // Per-provider skills with their current enabled state for the settings UI.
 async function listAllSkills() {
@@ -461,12 +474,12 @@ app.post('/settings', async (req, res) => {
     settings.skills = { ...(settings.skills || {}), codex };
     saveSettings(settings);
   }
-  // Gemini: enable/disable is global state that Gemini persists itself.
+  // Gemini pane = Antigravity (agy); its skills are agy plugins, toggled via agy.
   if (gemini) {
     const want = new Set(gemini);
     for (const s of await geminiSkills()) {
       const on = want.has(s.name);
-      if (on !== s.enabled) await run('gemini', ['skills', on ? 'enable' : 'disable', s.name]);
+      if (on !== s.enabled) await run('agy', ['plugin', on ? 'enable' : 'disable', s.name]);
     }
   }
   res.json({ ok: true });

@@ -1817,7 +1817,7 @@ async function deleteConversation(id) {
 }
 
 // ----- settings (skills) -----
-const PROVIDER_LABEL = { claude: 'Claude', gemini: 'Gemini', codex: 'ChatGPT (Codex)' };
+const PROVIDER_LABEL = { claude: 'Claude', gemini: 'Gemini (Antigravity plugins)', codex: 'ChatGPT (Codex)' };
 
 function fontRow(label, key, opts, def) {
   const row = document.createElement('label');
@@ -2004,7 +2004,7 @@ function renderSkillsBody(data) {
     if (pid === 'gemini' && skills.length) {
       const note = document.createElement('div');
       note.className = 'skill-note';
-      note.textContent = 'Changing these updates the Gemini CLI globally.';
+      note.textContent = 'These are Antigravity (agy) plugins; toggling enables/disables them globally.';
       section.appendChild(note);
     }
     if (pid === 'codex' && skills.length) {
