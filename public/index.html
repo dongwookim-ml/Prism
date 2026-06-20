@@ -1178,6 +1178,7 @@ function linearTurnEl(group) {
     bar.append(cmp, crt);
     turn.appendChild(bar);
   }
+  if (group.synthesis) renderSynthesis(turn, group.synthesis); // inline below the answers (linear)
   return turn;
 }
 
@@ -1218,8 +1219,10 @@ function openTreeModal(title) {
     ov.id = 'treeModal'; ov.className = 'modal-overlay';
     ov.innerHTML = '<div class="modal"><div class="modal-head"><h2></h2><button class="modal-close">&times;</button></div><div class="modal-body tree-modal-body"></div></div>';
     document.body.appendChild(ov);
-    ov.querySelector('.modal-close').onclick = () => ov.classList.remove('show');
-    ov.addEventListener('click', (e) => { if (e.target === ov) ov.classList.remove('show'); });
+    // On close, linear mode also shows the (now persisted) result inline below the answers.
+    const close = () => { ov.classList.remove('show'); if (convModel.mode === 'linear') render(); };
+    ov.querySelector('.modal-close').onclick = close;
+    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
   }
   ov.querySelector('h2').textContent = title;
   const body = ov.querySelector('.tree-modal-body');
