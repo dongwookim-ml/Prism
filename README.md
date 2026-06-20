@@ -61,11 +61,13 @@ Node/Express
   all** open or close every card. New answers open automatically while they
   stream. The layout re-flows around the larger nodes.
 
-**Comparing the models** (prompt node, on hover)
-- **Compare**: a semantic synthesis of that prompt's answers (consensus,
-  differences, unique points), shown in a panel.
-- **Criticize**: every model critiques the others; or the `!` icon on an expanded
-  card has the others critique just that answer.
+**Comparing the models** (Compare answers / Criticize)
+- **Compare**: a semantic synthesis of a prompt's answers (consensus, differences,
+  unique points). **Criticize**: every model critiques the others; the `!` icon
+  critiques a single answer.
+- Both open in a popup. In **Standard** mode, closing the popup also shows the
+  result inline (synthesis below the answers, critiques under each card); **Tree**
+  mode keeps it popup-only.
 - Syntheses and critiques are saved with the chat.
 
 **Per-card tools** (expanded card header)
