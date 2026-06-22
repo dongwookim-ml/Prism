@@ -135,7 +135,16 @@ function formatContext(context, current) {
   const hist = (context || [])
     .filter((e) => clean(e.text))
     .slice(-12)
-    .map((e) => `User: ${e.prompt || '[attached files]'}\nAssistant: ${clean(e.text)}`)
+    .map((e) => {
+      let block = `User: ${e.prompt || '[attached files]'}\nAssistant: ${clean(e.text)}`;
+      // Opponents' critiques of this answer, only when the client opted in (buildContext).
+      const crit = (Array.isArray(e.critiques) ? e.critiques : [])
+        .filter((c) => clean(c && c.text))
+        .map((c) => `- ${c.by || 'Another assistant'}: ${clean(c.text)}`)
+        .join('\n');
+      if (crit) block += `\n\nThe other assistants critiqued that answer:\n${crit}`;
+      return block;
+    })
     .join('\n\n');
   if (!hist) return current;
   return `Earlier in this conversation:\n\n${hist}\n\nReply to the user's new message below, using that context.\n\nUser: ${current}`;
@@ -253,18 +262,23 @@ const MODELS = {
     // --dangerously-skip-permissions bypasses all permission checks in headless mode,
     // which enables web search and every other tool without an interactive prompt.
     // Unselected skills are blocked via --disallowedTools Skill(name) (kept LAST: variadic).
+    // --strict-mcp-config: ignore the user's global ~/.claude.json MCP servers (e.g. the
+    // slurm SSH server), which would otherwise auto-connect on every call and can hang.
     args: (p, ctx) => {
-      const base = ['-p', filePreamble(ctx.attachments) + p, '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--dangerously-skip-permissions'];
+      const base = ['-p', filePreamble(ctx.attachments) + p, '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--dangerously-skip-permissions', '--strict-mcp-config'];
       if (ctx.model) base.push('--model', ctx.model);
       const disabled = ctx.disabledSkills || [];
       return disabled.length ? [...base, '--disallowedTools', ...disabled.map((n) => `Skill(${n})`)] : base;
     },
     parse: (o) => {
-      if (o.type === 'stream_event' &&
-          o.event?.type === 'content_block_delta' &&
-          o.event.delta?.type === 'text_delta') {
-        return o.event.delta.text;
-      }
+      if (o.type !== 'stream_event') return null;
+      const ev = o.event;
+      // Claude emits one text block per assistant message; between tool calls
+      // there are several, so prefix each new text block with U+001E. The client
+      // then renders them as separate paragraphs (earlier = muted reasoning, last
+      // = the answer), the same way it handles Codex's messages.
+      if (ev?.type === 'content_block_start' && ev.content_block?.type === 'text') return '\x1e';
+      if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') return ev.delta.text;
       return null;
     },
   },
@@ -494,7 +508,7 @@ app.post('/humanize', (req, res) => {
   // One-shot rewrite, NOT the humanize-korean skill (which spawns subagents and
   // is slow). sonnet + disallowed agentic tools force a single fast completion.
   const prompt = `다음 한글 텍스트를 사람이 쓴 것처럼 자연스럽게 윤문하세요. AI 티(번역투, 무생물 주어, 피동 남용, 과한 수식어, hedging, 기계적 병렬, 접속사 남발, 형식명사 남발)를 제거하되 의미, 사실, 숫자, 인용은 절대 바꾸지 마세요. 설명이나 메트릭 없이 윤문된 본문만 <<<R>>> 와 <<</R>>> 태그 사이에 출력하세요.\n\n${text}`;
-  const child = spawn('claude', ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
+  const child = spawn('claude', ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--strict-mcp-config', '--disallowedTools', 'Skill', 'Task', 'Bash'],
     { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '', err = '';
   child.stdout.setEncoding('utf8'); // decode multibyte (UTF-8) across chunk boundaries
@@ -598,7 +612,7 @@ app.post('/compare', (req, res) => {
   const groupId = req.body?.groupId || null;
 
   const cmpPrompt = `Three AI assistants answered the same question. Compare them at a semantic level, not word by word.\n\nQuestion:\n${prompt || '(inferred from the answers)'}\n\nAnswers:\n${parts}\n\nOutput ONLY this JSON between <<<R>>> and <<</R>>> tags, with string values in the same language as the answers:\n{"consensus":["point all or most agree on", ...],"differences":[{"topic":"short topic","positions":[{"model":"claude|gemini|codex","stance":"what this model says"}]}],"unique":[{"model":"claude|gemini|codex","point":"point only this model raised"}]}\nKeep each string short. Omit unique if none. Only include models that actually answered.`;
-  const child = spawn('claude', ['-p', cmpPrompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--disallowedTools', 'Skill', 'Task', 'Bash'],
+  const child = spawn('claude', ['-p', cmpPrompt, '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--strict-mcp-config', '--disallowedTools', 'Skill', 'Task', 'Bash'],
     { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '', err = '';
   child.stdout.setEncoding('utf8'); // decode multibyte (UTF-8) across chunk boundaries
@@ -783,6 +797,86 @@ app.post('/ask', (req, res) => {
   res.on('close', () => {
     if (!res.writableEnded) children.forEach((c) => c.kill('SIGTERM'));
   });
+});
+
+// Re-run a single answer in place (the regenerate button): same prompt + context
+// as the original, replacing the node's text/summary. The client only allows this
+// for a node with no follow-ups, so reparenting is never needed.
+app.post('/regenerate', (req, res) => {
+  const model = req.body?.model;
+  if (!MODELS[model]) return res.status(400).json({ error: 'unknown model' });
+  const cfg = MODELS[model];
+  const conversationId = req.body?.conversationId || null;
+  const groupId = req.body?.groupId || null;
+  const nodeId = req.body?.nodeId || null;
+  const temporary = !!req.body?.temporary;
+  const prompt = (req.body?.prompt || '').toString().trim();
+  const context = Array.isArray(req.body?.context) ? req.body.context : [];
+  if (!prompt) return res.status(400).json({ error: 'empty prompt' });
+
+  const summarized = `${prompt}\n\nAfter your full answer, on a new final line output exactly "${SUMMARY_MARKER}" followed by one concise sentence (in the same language as your answer) that summarizes your answer. Use that marker only once, at the very end.`;
+
+  // Same skill / model / personalization settings as /ask.
+  const settings = loadSettings();
+  const skillSettings = settings.skills || {};
+  const enabledClaude = skillSettings.claude;
+  const disabledSkills = enabledClaude ? claudeSkills().map((s) => s.name).filter((n) => !enabledClaude.includes(n)) : [];
+  const enabledCodex = skillSettings.codex ? codexSkills().filter((s) => skillSettings.codex.includes(s.name)) : codexSkills();
+  const serviceModels = settings.models || {};
+  const ci = (settings.customInstructions || '').trim();
+  const ciPreamble = ci ? `Standing instructions from the user (apply to every reply):\n${ci}\n\n` : '';
+
+  res.set({ 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
+  res.flushHeaders();
+  const emit = (obj) => res.write(JSON.stringify(obj) + '\n');
+  let collected = '';
+  const emitChunk = (text) => { collected += text; emit({ type: 'chunk', model, text }); };
+
+  const child = spawn(cfg.cmd, cfg.args(ciPreamble + formatContext(context, summarized), {
+    attachments: [], images: [], disabledSkills,
+    enabledSkills: model === 'codex' ? enabledCodex : undefined,
+    model: serviceModels[model],
+  }), { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
+
+  let out = '', err = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (d) => {
+    out += d.toString();
+    let nl;
+    while ((nl = out.indexOf('\n')) >= 0) {
+      const line = out.slice(0, nl); out = out.slice(nl + 1);
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (!cfg.parse) { emitChunk(line + '\n'); continue; }
+      let parsed;
+      try { parsed = JSON.parse(trimmed); } catch { continue; }
+      if (parsed.is_error || parsed.type === 'error' || (parsed.type === 'result' && parsed.subtype && parsed.subtype !== 'success')) {
+        const why = parsed.result || parsed.message || parsed.error?.message || parsed.subtype;
+        if (why && !err.includes(why)) err += `${why}`;
+      }
+      const text = cfg.parse(parsed);
+      if (text) emitChunk(text);
+    }
+  });
+  child.stderr.on('data', (d) => { err += d.toString(); });
+  child.on('error', (e) => emitChunk(`[cannot start "${cfg.cmd}": ${e.message}. Is it installed and logged in?]`));
+  child.on('close', (code) => {
+    if (!cfg.parse && out.trim()) emitChunk(out);
+    if (code && code !== 0) {
+      const hint = cliErrorHint(model, err);
+      emitChunk(`\n[${model} couldn't respond]${hint ? ' ' + hint : ` (exit ${code})`}`);
+    }
+    const { body, summary } = parseSummary(collected);
+    if (!temporary && conversationId && groupId && nodeId) {
+      const c = normalizeConv(loadConv(conversationId));
+      const g = c && findGroup(c, groupId);
+      const n = g && g.nodes.find((x) => x.id === nodeId);
+      if (n) { n.text = body; n.summary = summary; c.updatedAt = new Date().toISOString(); saveConv(c); }
+    }
+    emit({ type: 'done', model, body, summary });
+    res.end();
+  });
+  res.on('close', () => { if (!res.writableEnded) child.kill('SIGTERM'); });
 });
 
 // A long-running process can't spawn a CLI that updated underneath it (the

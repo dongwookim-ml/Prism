@@ -230,12 +230,10 @@
   .assistant > *:first-child { margin-top: 0; } .assistant > *:last-child { margin-bottom: 0; }
 
   /* Humanize button + result */
-  .humanize-btn {
-    flex: none; border: 1px solid var(--line); background: #fff; color: #555;
-    font: inherit; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 7px; cursor: pointer;
-  }
-  .humanize-btn:hover { background: #f3f3f7; }
+  .humanize-btn { flex: none; border: none; background: none; color: #9a9aa5; cursor: pointer; padding: 3px; border-radius: 6px; display: flex; }
+  .humanize-btn:hover { background: #f1f1f5; color: #555; }
   .humanize-btn:disabled { opacity: .5; cursor: default; }
+  .humanize-btn svg { width: 15px; height: 15px; }
   body.humanize-auto .humanize-btn { display: none; }
   .expand-btn { flex: none; border: none; background: none; color: #9a9aa5; cursor: pointer; padding: 3px; border-radius: 6px; display: flex; }
   .expand-btn:hover { background: #f1f1f5; color: #555; }
@@ -331,6 +329,8 @@
   .compare-bar { display: flex; justify-content: center; gap: 10px; margin-top: 14px; }
   .critique { margin: 0 18px 16px; padding-top: 12px; border-top: 1px dashed var(--line); }
   .critique-label { font-size: 11px; font-weight: 700; color: #b0533a; letter-spacing: .04em; margin-bottom: 6px; }
+  .crit-target-head { font-size: 13px; font-weight: 700; color: var(--ink); margin: 22px 18px 2px; }
+  .crit-target-head:first-child { margin-top: 0; }
   .critique-body { font-size: calc(var(--read-size) * 0.88); line-height: 1.55; color: #3a3a42; }
   .critique-body h1, .critique-body h2, .critique-body h3, .critique-body h4 { font-size: 1em; margin: .7em 0 .3em; }
   .critique .loader span { background: #cc8a70; }
@@ -389,6 +389,13 @@
     font: inherit; font-size: 16px; line-height: 1.5; color: var(--ink);
     max-height: 200px; padding: 8px 0;
   }
+  .crit-toggle {
+    flex: none; height: 40px; padding: 0 12px; border: 1px solid #dcdce4; background: var(--card);
+    color: #7a7a85; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+    border-radius: 11px; display: flex; align-items: center; gap: 6px;
+  }
+  .crit-toggle svg { width: 16px; height: 16px; }
+  .crit-toggle:hover { background: #fbeae3; border-color: #e6b9a6; color: #b0533a; }
   button#send {
     flex: none; height: 40px; padding: 0 22px; border: none; border-radius: 11px; cursor: pointer;
     font: inherit; font-weight: 600; font-size: 15px; color: #fff;
@@ -450,13 +457,14 @@
   body.dark .composer-inner { background: #1e1e26; border-color: #34343f; }
   body.dark .composer-inner:focus-within { border-color: #50505e; }
   body.dark .chip { background: #24242c; border-color: #34343f; }
-  body.dark .attach:hover, body.dark .copy-btn:hover, body.dark .expand-btn:hover, body.dark .choose-btn:hover { background: #2d2d38; color: #cfcfd8; }
-  body.dark .humanize-btn { background: #24242c; color: #cfcfd8; border-color: #34343f; }
+  body.dark .attach:hover, body.dark .copy-btn:hover, body.dark .expand-btn:hover, body.dark .choose-btn:hover, body.dark .humanize-btn:hover { background: #2d2d38; color: #cfcfd8; }
   body.dark .humanize-btn:hover { background: #2d2d38; }
   body.dark .font-select, body.dark .model-input, body.dark .ci-textarea { background: #24242c; color: #e2e2ea; border-color: #34343f; }
   body.dark .btn-secondary { background: #24242c; color: #e2e2ea; border-color: #34343f; }
   body.dark .compare-btn, body.dark .tree-toolbar .tt-btn { background: #24242c; color: #d6d6df; border-color: #34343f; }
   body.dark .compare-btn:hover, body.dark .tree-toolbar .tt-btn:hover { background: #2d2d38; }
+  body.dark .crit-toggle { background: #24242c; border-color: #34343f; color: #b9b9c4; }
+  body.dark .crit-toggle:hover { background: #3a241c; border-color: #6e4636; color: #e0a890; }
   body.dark .table-exp:hover { color: #ddd; }
   /* modals */
   body.dark .modal { background: #1e1e26; }
@@ -518,6 +526,9 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </button>
           <textarea id="prompt" rows="1" placeholder="Ask all three, or @Claude / @Gemini / @Codex to target one…"></textarea>
+          <button class="crit-toggle" id="critToggle" type="button" style="display:none" title="Have each model revise its previous answer using the other models' critiques">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>revise
+          </button>
           <button id="send">Send</button>
         </div>
         <div class="hint">Enter to send &middot; Shift+Enter for a new line &middot; @model to ask just one &middot; drag files in to attach</div>
@@ -555,8 +566,9 @@
           <ul>
             <li>Each prompt's three answers show full, side by side; ask again to continue.</li>
             <li><b>✓</b> on an answer makes the next prompt build on that one answer (all models continue from it); click again to clear.</li>
-            <li>Per answer: copy, <b>!</b> criticize (others critique it), Humanize, <b>×</b> delete. <b>×</b> on the prompt deletes the whole turn.</li>
-            <li><b>Compare answers</b> / <b>Criticize</b> (under the row): each opens a popup with the result, then on close shows it inline, the synthesis below the answers and critiques under each card.</li>
+            <li>Per answer (icons): copy, <b>regenerate</b> (re-run this answer in place), <b>!</b> criticize (others critique it), humanize, <b>×</b> delete. <b>×</b> on the prompt deletes the whole turn.</li>
+            <li><b>Compare answers</b> / <b>Criticize</b> (under the row): each opens a popup, then on close shows it inline. <b>Criticize</b> has the other models critique every answer, so each card shows the others' critiques of it (labeled by who wrote them); the synthesis sits below the answers.</li>
+            <li><b>revise</b> button (next to Send): appears once an answer has critiques. Click it and each critiqued model rewrites its own answer using the others' critiques, no prompt needed, as a new turn below.</li>
           </ul>
         </div>
         <div class="skill-section">
@@ -576,7 +588,7 @@
           <div class="skill-provider">Prompt node (hover)</div>
           <ul>
             <li><b>Compare</b>: semantic synthesis of that prompt's answers (consensus, differences, unique points), shown in a panel.</li>
-            <li><b>Criticize</b>: every model critiques the others; the per-card <b>!</b> (in the expanded view) has the others critique just that answer.</li>
+            <li><b>Criticize</b>: the other models critique every answer (grouped by answer, labeled by critic); the per-card <b>!</b> (in the expanded view) does it for just that answer.</li>
             <li><b>×</b>: deletes that prompt, its answers, and everything branched from them.</li>
             <li>Synthesis and critiques are saved with the chat.</li>
           </ul>
@@ -679,9 +691,10 @@ function mdMath(text) {
 }
 
 function renderInto(el, text, typeset = true) {
-  // Codex messages are U+001E-separated; the last is the answer, earlier ones
-  // (skill preambles) render as muted meta.
-  if ((text || '').includes('') && el.closest && el.closest('[data-id]')?.dataset.id === 'codex') {
+  // Codex messages and Claude text blocks (between tool calls) are U+001E-
+  // separated; the last segment is the answer, earlier ones (reasoning / skill
+  // preambles) render as muted meta.
+  if ((text || '').includes('') && el.closest && (el.closest('[data-id]')?.dataset.id === 'codex' || el.closest('[data-id]')?.dataset.id === 'claude')) {
     const parts = text.split('').map((s) => s.trim()).filter(Boolean);
     const main = parts.pop() || '';
     el.innerHTML = parts.map((p) => `<div class="codex-meta">${mdMath(p)}</div>`).join('') + mdMath(main);
@@ -731,7 +744,10 @@ const LOADER = '<div class="loader"><span></span><span></span><span></span></div
 const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
 const COPY_OK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 async function copyResponse(box, btn) {
-  const md = box._md ?? box.querySelector('.assistant')?.textContent ?? '';
+  let md = box._md ?? box.querySelector('.assistant')?.textContent ?? '';
+  // Codex/Claude carry U+001E-separated reasoning segments; copy only the answer.
+  const SEP = String.fromCharCode(30);
+  if (md.includes(SEP)) md = md.split(SEP).map((s) => s.trim()).filter(Boolean).pop() || md;
   try { await navigator.clipboard.writeText(md); } catch { return; }
   btn.innerHTML = COPY_OK_SVG;
   btn.classList.add('copied');
@@ -844,16 +860,30 @@ const isNodeSel = (id) => convModel.selected && convModel.selected.kind === 'nod
 const isGroupSel = (id) => convModel.selected && convModel.selected.kind === 'group' && convModel.selected.id === id;
 
 // Context chain root..node: each node's own prompt + answer, oldest first.
-function buildContext(nodeId) {
+function buildContext(nodeId, withCritiques) {
   const out = [];
   let cur = nodeId;
-  while (cur) { const { group, node } = findNodeC(cur); if (!node) break; out.push({ prompt: group.prompt, text: node.text }); cur = node.parentId; }
+  while (cur) {
+    const { group, node } = findNodeC(cur);
+    if (!node) break;
+    const entry = { prompt: group.prompt, text: node.text };
+    if (withCritiques && group.critiquesOf && group.critiquesOf[node.model]) {
+      const list = Object.entries(group.critiquesOf[node.model])
+        .filter(([, t]) => t && t.trim())
+        .map(([cid, t]) => ({ by: MODEL_SHORT[cid] || cid, text: t }));
+      if (list.length) entry.critiques = list;
+    }
+    out.push(entry);
+    cur = node.parentId;
+  }
   return out.reverse();
 }
 
 const EXPAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
 const COLLAPSE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
 const CRIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+const REGEN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+const HUMANIZE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M17.8 6.2L19 5"/><path d="M3 21l9-9"/><path d="M12.2 6.2L11 5"/></svg>';
 
 // Set (or clear) the selection ({kind:'node'|'group', id} | null) and persist it.
 async function setSelected(sel) {
@@ -906,7 +936,7 @@ function promptEl(group) {
   const mk = (label, title, fn) => { const b = document.createElement('button'); b.className = 'tp-btn'; b.textContent = label; b.title = title; b.onclick = (e) => { e.stopPropagation(); fn(); }; return b; };
   if (group.nodes.length >= 2) {
     acts.appendChild(mk('Compare', 'Compare answers (synthesis)', () => openSynthesisModal(group)));
-    acts.appendChild(mk('Criticize', 'Each model critiques the others', () => openCritiqueModal(group, null)));
+    acts.appendChild(mk('Criticize', 'The other models critique every answer', () => openCritiqueModal(group, null)));
   }
   acts.appendChild(mk('×', 'Delete this prompt, its answers, and everything branched from them', () => deleteGroup(group.id)));
   el.appendChild(acts);
@@ -939,12 +969,16 @@ function cardEl(node, group) {
     const cp = document.createElement('button');
     cp.className = 'copy-btn'; cp.title = 'Copy markdown'; cp.innerHTML = COPY_SVG; cp.onclick = stop(() => copyResponse(box, cp));
     head.appendChild(cp);
+    const rg = document.createElement('button');
+    rg.className = 'copy-btn'; rg.title = 'Regenerate this answer'; rg.innerHTML = REGEN_SVG; rg.disabled = streaming;
+    rg.onclick = stop(() => regenerate(node, group));
+    head.appendChild(rg);
     const crit = document.createElement('button');
     crit.className = 'copy-btn'; crit.title = 'Have the other answers criticize this one'; crit.innerHTML = CRIT_SVG;
     crit.onclick = stop(() => openCritiqueModal(group, node.model));
     head.appendChild(crit);
     humBtn = document.createElement('button');
-    humBtn.className = 'humanize-btn'; humBtn.textContent = 'Humanize';
+    humBtn.className = 'humanize-btn'; humBtn.title = 'Humanize (remove AI tone)'; humBtn.innerHTML = HUMANIZE_SVG;
     head.appendChild(humBtn);
   }
   box.appendChild(head);
@@ -961,8 +995,7 @@ function cardEl(node, group) {
     setStatus(head.querySelector('.status'), node.text ? 'done' : '', false);
     renderInto(body, expanded ? (node.text || '') : (node.summary || node.text || ''), false); // typeset once via renderTree
   }
-  if (expanded) { // persisted critiques live inside the expanded card
-    if (group.critiques && group.critiques[node.model]) renderInto(critiqueEl(box), group.critiques[node.model]);
+  if (expanded) { // persisted critiques (others' takes on this answer) live inside the expanded card
     if (group.critiquesOf && group.critiquesOf[node.model]) for (const [cid, t] of Object.entries(group.critiquesOf[node.model])) if (t) renderInto(critiquesOfRow(box, cid), t);
   }
   // Compact: click anywhere to open. Expanded: click the body to collapse (not
@@ -1136,7 +1169,7 @@ function rebindSlots() {
 
 // Render the current conversation in its mode: a tree node graph, or the classic
 // linear stack of three-pane rows.
-function render() { convModel.mode === 'tree' ? renderTree() : renderLinear(); }
+function render() { convModel.mode === 'tree' ? renderTree() : renderLinear(); updateCritToggle(); }
 
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="8.5 12.5 11 15 16 9"/></svg>';
 
@@ -1199,14 +1232,14 @@ function linearCardEl(node, group) {
   ch.onclick = stop(() => setSelected(isNodeSel(node.id) ? null : { kind: 'node', id: node.id }));
   head.appendChild(ch);
   const cp = document.createElement('button'); cp.className = 'copy-btn'; cp.title = 'Copy markdown'; cp.innerHTML = COPY_SVG; cp.onclick = stop(() => copyResponse(box, cp)); head.appendChild(cp);
+  const rg = document.createElement('button'); rg.className = 'copy-btn'; rg.title = 'Regenerate this answer'; rg.innerHTML = REGEN_SVG; rg.disabled = streaming; rg.onclick = stop(() => regenerate(node, group)); head.appendChild(rg);
   const crit = document.createElement('button'); crit.className = 'copy-btn'; crit.title = 'Have the other answers criticize this one'; crit.innerHTML = CRIT_SVG; crit.onclick = stop(() => openCritiqueModal(group, node.model)); head.appendChild(crit);
-  const hum = document.createElement('button'); hum.className = 'humanize-btn'; hum.textContent = 'Humanize'; head.appendChild(hum);
+  const hum = document.createElement('button'); hum.className = 'humanize-btn'; hum.title = 'Humanize (remove AI tone)'; hum.innerHTML = HUMANIZE_SVG; head.appendChild(hum);
   const del = document.createElement('button'); del.className = 'rbox-del'; del.title = 'Delete this answer'; del.textContent = '×'; del.onclick = stop(() => deleteNode(node.id)); head.appendChild(del);
   const body = document.createElement('div'); body.className = 'assistant'; box.appendChild(body); box._md = node.text;
   hum.onclick = stop(() => humanize({ box, el: body, btn: hum }, () => node.text));
   if (streaming) { setStatus(head.querySelector('.status'), 'thinking', true); if (slot.raw) renderInto(body, slot.raw, false); else body.innerHTML = LOADER; }
   else { setStatus(head.querySelector('.status'), node.text ? 'done' : '', false); renderInto(body, node.text || '', false); }
-  if (group.critiques && group.critiques[node.model]) renderInto(critiqueEl(box), group.critiques[node.model]);
   if (group.critiquesOf && group.critiquesOf[node.model]) for (const [cid, t] of Object.entries(group.critiquesOf[node.model])) if (t) renderInto(critiquesOfRow(box, cid), t);
   return box;
 }
@@ -1249,19 +1282,35 @@ async function openCritiqueModal(group, target) {
   const texts = groupTexts(group);
   const answered = Object.keys(texts).filter((id) => texts[id] && texts[id].trim());
   if (answered.length < 2) return;
-  const ids = target ? answered.filter((id) => id !== target) : answered;
+  // Untargeted "Criticize" = critique every answer; targeted "!" = one answer.
+  // Either way each answer shows the OTHER models' critiques of it, labeled by
+  // the real critic (critiquesOf[target] = { criticId: text }).
+  const targets = target ? [target] : answered;
   const body = openTreeModal(target ? `Critiques of ${modelLabel(target)}` : 'Critiques');
+  await Promise.all(targets.map((tgt) => runCritique(group, tgt, texts, answered, body, targets.length > 1)));
+  updateCritToggle(); // critiques now exist; reveal the revise button even in tree mode
+}
+
+// Stream the other models' critiques of one answer into the modal, then persist.
+async function runCritique(group, target, texts, answered, container, grouped) {
+  const critics = answered.filter((id) => id !== target);
+  if (grouped) {
+    const head = document.createElement('div');
+    head.className = 'crit-target-head';
+    head.textContent = `On ${MODEL_SHORT[target] || target}'s answer`;
+    container.appendChild(head);
+  }
   const bodies = {}, raws = {};
-  for (const id of ids) {
+  for (const id of critics) {
     const sec = document.createElement('div'); sec.className = 'critique';
     sec.innerHTML = `<div class="critique-label">Critics by ${MODEL_SHORT[id] || id}</div><div class="critique-body"></div>`;
-    body.appendChild(sec);
+    container.appendChild(sec);
     bodies[id] = sec.querySelector('.critique-body'); bodies[id].innerHTML = LOADER; raws[id] = '';
   }
   try {
     const res = await fetch('/criticize', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: group.prompt || '', responses: texts, target: target || undefined, conversationId: currentId, groupId: group.id }),
+      body: JSON.stringify({ prompt: group.prompt || '', responses: texts, target, conversationId: currentId, groupId: group.id }),
     });
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -1279,7 +1328,7 @@ async function openCritiqueModal(group, target) {
       }
     }
     const g = convModel.groups.find((x) => x.id === group.id);
-    if (g) { if (target) { g.critiquesOf = g.critiquesOf || {}; g.critiquesOf[target] = { ...raws }; } else g.critiques = { ...raws }; }
+    if (g) { g.critiquesOf = g.critiquesOf || {}; g.critiquesOf[target] = { ...raws }; }
   } catch {}
 }
 
@@ -1366,6 +1415,11 @@ function renderChips() {
   });
 }
 
+// Sent (as the user message) when the revise button runs; each model's previous
+// answer and the critiques of it ride along in its context (buildContext + the
+// server's formatContext), so this stays short and also reads as the group label.
+const REVISE_PROMPT = "Revise your previous answer using the other assistants' critiques above: address the valid points, fix any real mistakes, keep what is correct, and give an improved standalone answer.";
+
 async function send() {
   const ta = document.getElementById('prompt');
   const { ids: mentioned, cleaned: prompt } = parseMention(ta.value.trim());
@@ -1397,10 +1451,6 @@ async function send() {
     return;
   }
 
-  const btn = document.getElementById('send');
-  btn.disabled = true;
-  clearComposerNotice();
-
   const files = pendingFiles.map((f) => ({ name: f.name, dataBase64: f.dataBase64 }));
   const attachments = pendingFiles.map((f) => f.name);
   ta.value = '';
@@ -1408,12 +1458,22 @@ async function send() {
   pendingFiles = [];
   renderChips();
 
+  await runTurn({ prompt, targetIds, parentGroup, singleNodeId, withCritiques: false, files, attachments });
+}
+
+// Start one streamed turn: a new group continuing from the given parent(s), one
+// node per target model. Shared by a normal send and the revise action.
+async function runTurn({ prompt, targetIds, parentGroup, singleNodeId, withCritiques, files, attachments }) {
+  const btn = document.getElementById('send');
+  btn.disabled = true;
+  clearComposerNotice();
+
   const nodeParents = {}, contexts = {};
   for (const id of targetIds) {
     let pid = singleNodeId;
     if (!pid && parentGroup) { const pn = parentGroup.nodes.find((n) => n.model === id) || parentGroup.nodes[0]; pid = pn ? pn.id : null; }
     nodeParents[id] = pid || null;
-    contexts[id] = pid ? buildContext(pid) : [];
+    contexts[id] = pid ? buildContext(pid, withCritiques) : [];
   }
 
   // Optimistic group with placeholder ids; the server returns real ids on 'saved'.
@@ -1458,6 +1518,41 @@ async function send() {
   btn.disabled = false;
 }
 
+// The answers (and their models) the next turn would continue from: a selected
+// node, a selected group, or the last group.
+function continuationSource() {
+  const sel = convModel.selected;
+  if (sel && sel.kind === 'node') { const { group, node } = findNodeC(sel.id); return node ? { group, models: [node.model] } : null; }
+  const g = (sel && sel.kind === 'group') ? groupOf(sel.id) : (convModel.groups.length ? convModel.groups[convModel.groups.length - 1] : null);
+  return g ? { group: g, models: g.nodes.map((n) => n.model) } : null;
+}
+
+// Models at that source whose answer has critiques written by the other models.
+function critiquedModels() {
+  const src = continuationSource();
+  if (!src) return [];
+  const co = src.group.critiquesOf || {};
+  return src.models.filter((m) => co[m] && Object.values(co[m]).some((t) => t && t.trim()));
+}
+
+// Show the revise button only when there are critiques to revise against.
+function updateCritToggle() {
+  const btn = document.getElementById('critToggle');
+  if (btn) btn.style.display = critiquedModels().length ? '' : 'none';
+}
+
+// Make each critiqued model rewrite its previous answer using the critiques. No
+// user prompt needed: REVISE_PROMPT plus the in-context critiques drive it. Runs
+// as a normal parallel turn (each model continues its own answer).
+async function reviseFromCritiques() {
+  const src = continuationSource();
+  const models = critiquedModels();
+  if (!src || !models.length) return;
+  const hasDesc = src.group.nodes.filter((n) => models.includes(n.model)).some((n) => childNodesOf(n.id).length > 0);
+  if (hasDesc) { showComposerNotice('These answers already have follow-ups. Delete them first to revise here.'); return; }
+  await runTurn({ prompt: REVISE_PROMPT, targetIds: models, parentGroup: src.group, singleNodeId: null, withCritiques: true, files: [], attachments: [] });
+}
+
 function handle(evt) {
   if (evt.type === 'saved') {
     convModel.id = currentId = evt.conversationId;
@@ -1500,6 +1595,42 @@ function settleCard(slot) {
   return stream.querySelector(`[data-node="${CSS.escape(slot.nodeId)}"]`);
 }
 
+// Re-run one answer in place: same prompt + context, replacing this node's text
+// (reuses the streaming handler). Blocked if the answer already has follow-ups,
+// since those were branched from the old text.
+async function regenerate(node, group) {
+  if (childNodesOf(node.id).length) { showComposerNotice('Remove the follow-ups branched from this answer before regenerating it.'); return; }
+  clearComposerNotice();
+  const slot = { raw: '', done: false, model: node.model, nodeId: node.id };
+  cardSlots[node.id] = slot;
+  activeByModel[node.model] = slot;
+  node._expanded = true; node.text = ''; node.summary = '';
+  render(); // rebindSlots binds slot.el/box and shows the loader
+  try {
+    const res = await fetch('/regenerate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversationId: convModel.id, groupId: group.id, nodeId: node.id, model: node.model,
+        prompt: group.prompt || '', context: buildContext(node.parentId, false), temporary,
+      }),
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (line.trim()) handle(JSON.parse(line));
+      }
+    }
+  } catch {}
+  if (!slot.done) { slot.done = true; render(); }
+}
+
 async function loadSidebar() {
   const convs = await fetch('/conversations').then(r => r.json());
   convList.innerHTML = '';
@@ -1539,7 +1670,7 @@ async function humanize(slot, getText) {
   if (!text) return;
   const btn = slot.btn;
   btn.disabled = true;
-  const label = btn.textContent;
+  const label = btn.innerHTML; // preserve the icon; restore after
   btn.textContent = '…';
   try {
     const r = await fetch('/humanize', {
@@ -1562,7 +1693,7 @@ async function humanize(slot, getText) {
     }
   } catch {}
   btn.disabled = false;
-  btn.textContent = label;
+  btn.innerHTML = label;
 }
 
 // Semantic synthesis of a turn's answers, rendered with per-model colors.
@@ -1602,20 +1733,7 @@ function normModel(m) {
   if (x.includes('codex') || x.includes('chatgpt') || x.includes('gpt')) return 'codex';
   return x;
 }
-// Critique block inside a response box (model's take on the others' answers).
-function critiqueEl(box) {
-  let el = box.querySelector('.critique');
-  if (!el) {
-    el = document.createElement('div');
-    el.className = 'critique';
-    const who = MODEL_SHORT[box.dataset.id] || 'this model';
-    el.innerHTML = `<div class="critique-label">Critics by ${who}</div><div class="critique-body"></div>`;
-    box.appendChild(el);
-  }
-  return el.querySelector('.critique-body');
-}
-
-// Targeted critiques: rows (one per critic) under the criticized box.
+// Critiques of one answer: rows (one per critic) under the criticized box.
 function critiquesOfRow(box, criticId) {
   let el = box.querySelector('.critiques-of');
   if (!el) {
@@ -2116,6 +2234,9 @@ ta.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); }
 });
 document.getElementById('send').addEventListener('click', send);
+// The "revise" button (only shown when critiques exist for the answers the next
+// turn would continue from) makes each model rewrite its answer using them.
+document.getElementById('critToggle').addEventListener('click', reviseFromCritiques);
 const setAllExpanded = (v) => { for (const g of convModel.groups) for (const n of g.nodes) n._expanded = v; render(); };
 document.getElementById('expandAllBtn').addEventListener('click', () => setAllExpanded(true));
 document.getElementById('collapseAllBtn').addEventListener('click', () => setAllExpanded(false));

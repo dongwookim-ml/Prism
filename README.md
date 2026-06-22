@@ -63,15 +63,24 @@ Node/Express
 
 **Comparing the models** (Compare answers / Criticize)
 - **Compare**: a semantic synthesis of a prompt's answers (consensus, differences,
-  unique points). **Criticize**: every model critiques the others; the `!` icon
-  critiques a single answer.
+  unique points). **Criticize**: the other models critique *every* answer, so each
+  answer shows the others' critiques of it, each labeled by the model that wrote
+  it. The `!` icon does the same for a single answer.
 - Both open in a popup. In **Standard** mode, closing the popup also shows the
-  result inline (synthesis below the answers, critiques under each card); **Tree**
-  mode keeps it popup-only.
+  result inline (synthesis below the answers, the others' critiques under each
+  card); **Tree** mode keeps it popup-only.
 - Syntheses and critiques are saved with the chat.
+- **Revise** button (next to Send): hidden until an answer has critiques. Click it
+  and each critiqued model rewrites its own answer using the other models'
+  critiques, with no prompt from you, appended as a new turn. Each model's previous
+  answer and the critiques of it are passed in its context; otherwise critiques stay
+  display-only.
 
-**Per-card tools** (expanded card header)
+**Per-card tools** (expanded card header, icons)
 - Copy the answer as markdown; criticize just this answer.
+- **Regenerate**: re-run that one answer in place, with the same prompt and
+  context, replacing it. Blocked if the answer already has follow-ups branched
+  from it (delete those first).
 - **Humanize**: rewrite an answer to remove the AI tone (Korean text); a
   Settings toggle applies it to every response automatically.
 
