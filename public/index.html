@@ -599,7 +599,7 @@
             <li><b>New chat</b> (standard) / <b>New tree chat</b> start a fresh chat in that mode; <b>Temporary chat</b> is never saved.</li>
             <li>Hover a chat: pencil renames (or double-click the title), × deletes.</li>
             <li><b>Skills</b>: enable/disable each CLI's skills (ⓘ shows descriptions).</li>
-            <li><b>Settings</b>: appearance (font, size, night mode), humanize-all toggle, default models, base model per service, and personalization (standing instructions sent with every prompt).</li>
+            <li><b>Settings</b>: appearance (font, size, theme: light / dark / system), humanize-all toggle, default models, base model per service, and personalization (standing instructions sent with every prompt).</li>
           </ul>
         </div>
       </div>
@@ -767,9 +767,16 @@ function applyFont() {
   document.documentElement.style.setProperty('--read-size', SIZES[s] || SIZES.medium);
 }
 applyFont();
-const nightModeOn = () => localStorage.getItem('prism.theme') === 'dark';
-function applyTheme() { document.body.classList.toggle('dark', nightModeOn()); }
+// Theme: 'light' | 'dark' | 'system' (default). 'system' follows the OS setting.
+const themePref = () => localStorage.getItem('prism.theme') || 'system';
+const systemDark = () => window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+function applyTheme() {
+  const p = themePref();
+  document.body.classList.toggle('dark', p === 'dark' || (p === 'system' && systemDark()));
+}
 applyTheme();
+// Re-apply when the OS theme changes, but only while following the system.
+if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themePref() === 'system') applyTheme(); });
 const humanizeDefaultOn = () => localStorage.getItem('prism.humanizeDefault') === '1';
 function applyHumanizeDefault() { document.body.classList.toggle('humanize-auto', humanizeDefaultOn()); }
 applyHumanizeDefault();
@@ -1941,7 +1948,7 @@ async function deleteConversation(id) {
 // ----- settings (skills) -----
 const PROVIDER_LABEL = { claude: 'Claude', gemini: 'Gemini (Antigravity plugins)', codex: 'ChatGPT (Codex)' };
 
-function fontRow(label, key, opts, def) {
+function fontRow(label, key, opts, def, apply = applyFont) {
   const row = document.createElement('label');
   row.className = 'skill-row';
   const nm = document.createElement('span');
@@ -1958,7 +1965,7 @@ function fontRow(label, key, opts, def) {
     if (v === cur) o.selected = true;
     sel.appendChild(o);
   }
-  sel.onchange = () => { localStorage.setItem(key, sel.value); applyFont(); };
+  sel.onchange = () => { localStorage.setItem(key, sel.value); apply(); };
   row.append(nm, sel);
   return row;
 }
@@ -2018,18 +2025,7 @@ function renderSettingsBody() {
   asec.appendChild(ah);
   asec.appendChild(fontRow('Font', 'prism.font', { system: 'System', serif: 'Serif', mono: 'Mono' }, 'system'));
   asec.appendChild(fontRow('Size', 'prism.size', { small: 'Small', medium: 'Medium', large: 'Large' }, 'medium'));
-  const nrow = document.createElement('label');
-  nrow.className = 'skill-row';
-  nrow.style.alignItems = 'center';
-  const ncb = document.createElement('input');
-  ncb.type = 'checkbox';
-  ncb.checked = nightModeOn();
-  ncb.onchange = () => { localStorage.setItem('prism.theme', ncb.checked ? 'dark' : 'light'); applyTheme(); };
-  const nnm = document.createElement('span');
-  nnm.className = 'skill-name';
-  nnm.textContent = 'Night mode';
-  nrow.append(ncb, nnm);
-  asec.appendChild(nrow);
+  asec.appendChild(fontRow('Theme', 'prism.theme', { system: 'System', light: 'Light', dark: 'Dark' }, 'system', applyTheme));
   const hrow = document.createElement('label');
   hrow.className = 'skill-row';
   hrow.style.alignItems = 'center';

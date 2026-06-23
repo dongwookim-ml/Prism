@@ -93,7 +93,7 @@ Node/Express
 
 **Settings & Skills**
 - Default models, base model per service (`opus`/`sonnet`/`haiku` or custom),
-  font family/size, and **night mode** (dark theme).
+  font family/size, and **theme** (light / dark / system, follows the OS).
 - Personalization: standing instructions (like custom instructions / CLAUDE.md)
   sent to every model with every prompt.
 - Enable/disable each CLI's skills from the Skills panel: Claude and Codex skills,
