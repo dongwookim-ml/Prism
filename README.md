@@ -116,6 +116,10 @@ Check: `claude --version`, `agy --version`, `codex --version` should all print.
 > Note: Google ended the free Gemini CLI tier for individuals, so the Gemini
 > pane now runs through **Antigravity** (`agy`), which serves Gemini models. Pick
 > the exact model in Settings → base model (default: Gemini 3.1 Pro High).
+>
+> If `agy` isn't signed in, the Gemini pane returns a short "not signed in" note
+> instead of hanging on its interactive sign-in prompt. Run `agy` in a terminal
+> (no arguments) to sign in, then retry.
 
 ## Run
 

@@ -55,11 +55,17 @@ function cliErrorHint(id, err) {
   const e = String(err || '');
   if (/IneligibleTier|no longer supported|Antigravity|Gemini Code Assist for individuals/i.test(e))
     return 'Gemini sign-in is no longer supported — Google ended the free Gemini CLI tier (oauth-personal). Re-authenticate the gemini CLI (e.g. a Gemini API key) or turn Gemini off in Settings → Default models.';
-  if (/Error authenticating|not (logged in|authenticated)|requires? (login|authentication)|API key|credential|invalid_grant|\b40[13]\b|unauthor/i.test(e))
+  if (/Error authenticating|not (logged|signed) in|requires? (login|authentication)|please sign in|sign in to view|API key|credential|invalid_grant|\b40[13]\b|unauthor/i.test(e))
     return `${id} isn't signed in. Log in to its CLI, then retry.`;
   const line = e.split('\n').map((s) => s.trim()).find((s) => s && !/^Warning:|YOLO mode|Ripgrep|256-color|^An unexpected/i.test(s));
   return line ? line.slice(0, 200) : '';
 }
+
+// Antigravity (agy) prints one of these when it isn't signed in. It can also
+// block waiting for an interactive sign-in, which Prism can't do, so we detect
+// the message in its output, kill the process, and return a clean note instead.
+const AGY_LOGIN_RE = /please sign in|not (signed|logged) in|sign in to (view|use)|launch the cli without arguments to sign in/i;
+const AGY_LOGIN_MESSAGE = '[Gemini not signed in] Antigravity (agy) needs an interactive sign-in, which Prism can\'t do. Run `agy` in a terminal (no arguments) to sign in, then retry. Or turn Gemini off in Settings.';
 
 // Each model appends its own one-sentence summary after a marker; split it out.
 function parseSummary(text) {
@@ -703,6 +709,7 @@ app.post('/ask', (req, res) => {
   const emitChunk = (id, text) => { collected[id] += text; emit({ type: 'chunk', model: id, text }); };
   let remaining = ids.length;
   const children = [];
+  const loginRequired = {}; // model -> true once we see an agy sign-in prompt
 
   // Append a new group (one node per model) to the conversation tree up front so
   // it appears immediately; node text is filled in on completion. The node
@@ -753,6 +760,8 @@ app.post('/ask', (req, res) => {
         const trimmed = line.trim();
         if (!trimmed) continue;
         if (!cfg.parse) {
+          if (loginRequired[id]) continue; // signed-out: drop the interactive login text
+          if (id === 'gemini' && !collected[id].trim() && AGY_LOGIN_RE.test(line)) { loginRequired[id] = true; child.kill('SIGTERM'); continue; }
           emitChunk(id, line + '\n');
           continue;
         }
@@ -769,17 +778,25 @@ app.post('/ask', (req, res) => {
       }
     });
 
-    child.stderr.on('data', (d) => { err += d.toString(); });
+    child.stderr.on('data', (d) => {
+      err += d.toString();
+      if (id === 'gemini' && !collected[id].trim() && !loginRequired[id] && AGY_LOGIN_RE.test(err)) { loginRequired[id] = true; child.kill('SIGTERM'); }
+    });
 
     child.on('error', (e) => {
       emitChunk(id, `[cannot start "${cfg.cmd}": ${e.message}. Is it installed and logged in?]`);
     });
 
     child.on('close', (code) => {
-      if (!cfg.parse && out.trim()) emitChunk(id, out); // flush tail
-      if (code && code !== 0) {
-        const hint = cliErrorHint(id, err);
-        emitChunk(id, `\n[${id} couldn't respond]${hint ? ' ' + hint : ` (exit ${code})`}`);
+      if (loginRequired[id]) {
+        collected[id] = ''; // discard the raw login prompt; return just a clean note
+        emitChunk(id, AGY_LOGIN_MESSAGE);
+      } else {
+        if (!cfg.parse && out.trim()) emitChunk(id, out); // flush tail
+        if (code && code !== 0) {
+          const hint = cliErrorHint(id, err);
+          emitChunk(id, `\n[${id} couldn't respond]${hint ? ' ' + hint : ` (exit ${code})`}`);
+        }
       }
       // Split the trailing one-sentence summary off the answer for the tree card.
       const { body, summary } = parseSummary(collected[id]);
@@ -838,7 +855,7 @@ app.post('/regenerate', (req, res) => {
     model: serviceModels[model],
   }), { cwd: ensureScratch(), stdio: ['ignore', 'pipe', 'pipe'] });
 
-  let out = '', err = '';
+  let out = '', err = '', loginRequired = false;
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (d) => {
     out += d.toString();
@@ -847,7 +864,12 @@ app.post('/regenerate', (req, res) => {
       const line = out.slice(0, nl); out = out.slice(nl + 1);
       const trimmed = line.trim();
       if (!trimmed) continue;
-      if (!cfg.parse) { emitChunk(line + '\n'); continue; }
+      if (!cfg.parse) {
+        if (loginRequired) continue;
+        if (model === 'gemini' && !collected.trim() && AGY_LOGIN_RE.test(line)) { loginRequired = true; child.kill('SIGTERM'); continue; }
+        emitChunk(line + '\n');
+        continue;
+      }
       let parsed;
       try { parsed = JSON.parse(trimmed); } catch { continue; }
       if (parsed.is_error || parsed.type === 'error' || (parsed.type === 'result' && parsed.subtype && parsed.subtype !== 'success')) {
@@ -858,13 +880,21 @@ app.post('/regenerate', (req, res) => {
       if (text) emitChunk(text);
     }
   });
-  child.stderr.on('data', (d) => { err += d.toString(); });
+  child.stderr.on('data', (d) => {
+    err += d.toString();
+    if (model === 'gemini' && !collected.trim() && !loginRequired && AGY_LOGIN_RE.test(err)) { loginRequired = true; child.kill('SIGTERM'); }
+  });
   child.on('error', (e) => emitChunk(`[cannot start "${cfg.cmd}": ${e.message}. Is it installed and logged in?]`));
   child.on('close', (code) => {
-    if (!cfg.parse && out.trim()) emitChunk(out);
-    if (code && code !== 0) {
-      const hint = cliErrorHint(model, err);
-      emitChunk(`\n[${model} couldn't respond]${hint ? ' ' + hint : ` (exit ${code})`}`);
+    if (loginRequired) {
+      collected = '';
+      emitChunk(AGY_LOGIN_MESSAGE);
+    } else {
+      if (!cfg.parse && out.trim()) emitChunk(out);
+      if (code && code !== 0) {
+        const hint = cliErrorHint(model, err);
+        emitChunk(`\n[${model} couldn't respond]${hint ? ' ' + hint : ` (exit ${code})`}`);
+      }
     }
     const { body, summary } = parseSummary(collected);
     if (!temporary && conversationId && groupId && nodeId) {
